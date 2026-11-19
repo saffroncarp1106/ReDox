@@ -319,6 +319,13 @@ pub fn apply(ctx: &egui::Context, layout: &str) {
         .families
         .insert(egui::FontFamily::Name("serif".into()), serif_fonts);
     redox_studio::presentation::typography::register(&mut fonts);
+    fonts.font_data.insert(
+        latex_rust::STIX_TWO_MATH_NAME.into(),
+        egui::FontData::from_static(latex_rust::STIX_TWO_MATH_OTF).into(),
+    );
+    for family in fonts.families.values_mut() {
+        family.push(latex_rust::STIX_TWO_MATH_NAME.into());
+    }
     ctx.set_fonts(fonts);
 
     let mut visuals = egui::Visuals::dark();
@@ -373,3 +380,7 @@ pub fn apply(ctx: &egui::Context, layout: &str) {
 #[cfg(test)]
 #[path = "../../tests/ui/text_colors.rs"]
 mod text_color_tests;
+
+#[cfg(test)]
+#[path = "../../tests/ui/theme.rs"]
+mod glyph_tests;
