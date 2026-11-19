@@ -7,6 +7,8 @@ use pulldown_cmark::{Event, Parser, Tag};
 mod http;
 pub(in crate::app) use http::install as install_http_loader;
 
+pub(super) const MAX_IMAGE_HEIGHT: f32 = 480.0;
+
 pub(super) struct Reference {
     pub range: Range<usize>,
     pub destination: String,
@@ -142,7 +144,7 @@ pub(super) fn show(ui: &mut egui::Ui, destination: &str, video: bool, workspace:
         let image = egui::Image::new(uri.clone())
             .fit_to_original_size(1.0)
             .max_width(ui.available_width().min(720.0))
-            .max_height(480.0);
+            .max_height(MAX_IMAGE_HEIGHT);
         let loaded = image.load_for_size(ui.ctx(), ui.available_size());
         ui.add(image).on_hover_text(destination);
         if let Err(error) = loaded {

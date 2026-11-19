@@ -70,13 +70,26 @@ impl ScrollArea {
         self
     }
 
+    pub fn animated(mut self, animated: bool) -> Self {
+        self.area = self.area.animated(animated);
+        self
+    }
+
     pub fn show<R>(
-        mut self,
+        self,
         ui: &mut Ui,
         contents: impl FnOnce(&mut Ui) -> R,
     ) -> egui::scroll_area::ScrollAreaOutput<R> {
+        self.show_viewport(ui, |ui, _| contents(ui))
+    }
+
+    pub fn show_viewport<R>(
+        mut self,
+        ui: &mut Ui,
+        contents: impl FnOnce(&mut Ui, Rect) -> R,
+    ) -> egui::scroll_area::ScrollAreaOutput<R> {
         if !super::theme::is_classic(ui) {
-            return self.area.show(ui, contents);
+            return self.area.show_viewport(ui, contents);
         }
         let id = ui.make_persistent_id(
             self.salt
@@ -111,7 +124,7 @@ impl ScrollArea {
                     handle_min_length: 17.0,
                     ..egui::style::ScrollStyle::solid()
                 };
-                self.area.show(ui, contents)
+                self.area.show_viewport(ui, contents)
             })
             .inner;
         let max_offset = (output.content_size[axis] - output.inner_rect.size()[axis]).max(0.0);

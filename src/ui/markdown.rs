@@ -28,10 +28,12 @@ pub(super) fn show_in_workspace(
     let error_id = ui.next_auto_id().with("file_link_error");
     let command_start = ui.output_mut(|output| output.commands.len());
     let mut offset = 0;
-    for reference in super::media::references(&source) {
-        render(ui, &source[offset..reference.range.start]);
-        super::media::show(ui, &reference.destination, reference.video, workspace);
-        offset = reference.range.end;
+    if source.contains(['[', '<']) {
+        for reference in super::media::references(&source) {
+            render(ui, &source[offset..reference.range.start]);
+            super::media::show(ui, &reference.destination, reference.video, workspace);
+            offset = reference.range.end;
+        }
     }
     render(ui, &source[offset..]);
     let file_links = ui.output_mut(|output| {
@@ -69,6 +71,14 @@ pub(super) fn show_in_workspace(
 }
 
 fn render(ui: &mut egui::Ui, source: &str) {
+    if !source.contains("```")
+        && !source.contains("~~~")
+        && !source.contains("    ")
+        && !source.contains('\t')
+    {
+        render_prose(ui, source);
+        return;
+    }
     let mut offset = 0;
     let mut block_start = None;
     let mut code = String::new();

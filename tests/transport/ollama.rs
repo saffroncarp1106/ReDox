@@ -940,3 +940,41 @@ async fn live_local_project_read_test() {
         stats.unwrap().output_tokens
     );
 }
+
+#[test]
+fn borrowed_chat_request_preserves_the_wire_format() {
+    let messages = [json!({"role":"user","content":"test","images":["image data"]})];
+    let tools = json!([{"type":"function"}]);
+    let mut body = ChatBody {
+        model: "mock",
+        messages: &messages,
+        stream: true,
+        options: ChatOptions {
+            num_ctx: 1024,
+            num_predict: 128,
+            num_gpu: Some(0),
+        },
+        keep_alive: Some(90),
+        tools: Some(&tools),
+        think: Some(false),
+    };
+    assert_eq!(
+        serde_json::to_value(&body).unwrap(),
+        json!({
+            "model":"mock", "messages":messages, "stream":true,
+            "options":{"num_ctx":1024,"num_predict":128,"num_gpu":0},
+            "keep_alive":90, "tools":tools, "think":false
+        })
+    );
+    body.options.num_gpu = None;
+    body.keep_alive = None;
+    body.tools = None;
+    body.think = None;
+    assert_eq!(
+        serde_json::to_value(&body).unwrap(),
+        json!({
+            "model":"mock", "messages":messages, "stream":true,
+            "options":{"num_ctx":1024,"num_predict":128}
+        })
+    );
+}

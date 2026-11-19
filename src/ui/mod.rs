@@ -32,6 +32,7 @@ mod shell;
 pub(super) mod skins;
 pub(super) mod startup;
 mod studio;
+mod transcript;
 pub(super) mod theme;
 mod updates;
 mod usage;

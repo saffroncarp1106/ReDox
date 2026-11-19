@@ -101,7 +101,47 @@ feedback branching, and a login-state boolean. These are not silently suppressed
 in source. Native desktop interaction and end-to-end GUI performance were not
 tested in this pass.
 
-Remaining work includes profiling long transcripts, bounding checkpoint rewrite
-cost, supporting long-running tool command sessions, and process-tree
-cancellation. The command timeout and descendant ownership are not changed by
-the pipe-draining fix.
+## macOS desktop measurements
+
+Measured on Apple Silicon with Rust 1.88.0 release builds. The baseline was the
+local v0.2.2 checkout immediately before these changes. Each row reports the
+medians from five paired process runs, alternating the execution order. Peak RSS
+comes from macOS `wait4` for the test process.
+
+| Workload | Median time before → after | Peak RSS before → after |
+| --- | ---: | ---: |
+| Streaming a 10-turn chat | 1.328 → 0.199 ms per frame (6.7× faster) | 18.5 → 15.4 MiB |
+| Streaming a 150-turn chat | 22.590 → 0.197 ms per frame (115× faster) | 62.4 → 17.0 MiB |
+| Opening a chat with 24 images | — | 199.2 → 38.8 MiB |
+| Scanning a UI pack with a 4096 × 4096 PNG background | 29.511 → 0.091 ms (324× faster) | 73.3 → 9.1 MiB |
+| Saving a 12.3 MiB Ollama checkpoint | 6.867 → 8.458 ms per save | 316.3 → 14.0 MiB |
+
+The chat fixtures rendered the Codex layout offscreen in a 1100 × 900 viewport,
+appending text to the latest reply each frame. Each sample used 20 warm-up frames
+and timed the next 70. The 150-turn run's 95th-percentile frame time went from
+24.119 to 0.211 ms. These timings cover CPU-side UI work through egui's frame
+output. GPU presentation, live model generation, and network latency are outside
+the fixtures.
+
+The image case opened a conversation with 24 local 1024 × 1024 images. The texture
+manager held 24 image textures before and two after the initial render settled.
+Scrolling loads older images as they come into view. The checkpoint fixture saved
+the same history 16 times per process and produced a 12,869,393-byte file in both
+versions. Buffered writing trades about 1.6 ms per save for a smaller working
+set. Its I/O still scales with the total checkpoint size.
+
+The benchmark commands run local fixtures with a single test thread.
+
+```sh
+cargo test --locked --release --features design-export --bin redox long_chat_benchmark -- --ignored --nocapture --test-threads=1
+cargo test --locked --release --features design-export --bin redox image_chat_benchmark -- --ignored --nocapture --test-threads=1
+cargo test --locked --release --lib checkpoint_save_benchmark -- --ignored --nocapture --test-threads=1
+```
+
+Set `REDOX_BENCH_TURNS=10` for the short chat. For the theme scan, set
+`REDOX_BENCH_PACKS` to a separate directory containing `large-background/ui.json`
+with `{"name":"Performance fixture","layout":"codex","background_image":"background.png"}`
+and a 4096 × 4096 `background.png` in the same pack. Use the desktop test command
+above with `theme_catalog_benchmark` as the test filter. For peak RSS comparisons,
+measure each test executable directly so the measurement excludes Cargo and the
+compiler.

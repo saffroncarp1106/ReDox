@@ -529,46 +529,14 @@ pub(super) fn render_transcript(
     codex_mode: bool,
 ) {
     ui.spacing_mut().scroll = theme::conversation_scroll();
-    super::scroll::ScrollArea::vertical()
-        .id_salt(scroll_id)
-        .horizontal_scroll_offset(0.0)
-        .stick_to_bottom(true)
-        .auto_shrink([false, false])
-        .show(ui, |ui| {
-            let available = ui.available_rect_before_wrap();
-            let width = (available.width() - horizontal_padding)
-                .clamp(260.0, 820.0)
-                .min(available.width());
-            let left = available.center().x - width * 0.5;
-            let right = left + width;
-            ui.add_space(16.0);
-            for message in &chat.messages {
-                let top = ui.next_widget_position().y;
-                let bounds = egui::Rect::from_min_max(
-                    egui::pos2(left, top),
-                    egui::pos2(right, available.bottom().max(top)),
-                );
-                let mut row = ui.new_child(
-                    egui::UiBuilder::new()
-                        .id_salt(message.id)
-                        .max_rect(bounds)
-                        .layout(Layout::top_down(Align::Min)),
-                );
-                let clip = ui.clip_rect();
-                row.set_clip_rect(clip.intersect(egui::Rect::from_min_max(
-                    egui::pos2(left, clip.top()),
-                    egui::pos2(right, clip.bottom()),
-                )));
-                render_message(&mut row, message, chat.workspace.as_deref(), codex_mode);
-                // An oversized message must not widen the layout used for the next row.
-                ui.advance_cursor_after_rect(egui::Rect::from_min_max(
-                    bounds.min,
-                    egui::pos2(right, row.min_rect().bottom()),
-                ));
-                ui.add_space(26.0);
-            }
-            ui.add_space(16.0);
-        });
+    super::transcript::show(
+        ui,
+        &chat.messages,
+        scroll_id,
+        horizontal_padding,
+        codex_mode,
+        |ui, message| render_message(ui, message, chat.workspace.as_deref(), codex_mode),
+    );
 }
 
 fn render_message(

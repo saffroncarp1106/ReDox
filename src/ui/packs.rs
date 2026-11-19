@@ -1,4 +1,7 @@
+use std::io::Read;
 use std::path::{Component, Path, PathBuf};
+
+use image::ImageDecoder;
 
 use eframe::egui::Color32;
 use serde::{Deserialize, Serialize};
@@ -118,7 +121,7 @@ impl Config {
             return Err("Background opacity must be between 0 and 1.".into());
         }
         if let Some(asset) = &self.background_image {
-            load_background(&asset_path(path, asset)?)?;
+            background_decoder(&asset_path(path, asset)?)?;
         }
         Ok(())
     }
@@ -175,8 +178,12 @@ pub fn asset_path(config: &Path, asset: &str) -> Result<PathBuf, String> {
 }
 
 pub fn read(path: &Path) -> Result<Config, String> {
-    let bytes = std::fs::read(path).map_err(|error| error.to_string())?;
-    if bytes.len() > 64 * 1024 {
+    const MAX_CONFIG_BYTES: u64 = 64 * 1024;
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)
+        .and_then(|file| file.take(MAX_CONFIG_BYTES + 1).read_to_end(&mut bytes))
+        .map_err(|error| error.to_string())?;
+    if bytes.len() as u64 > MAX_CONFIG_BYTES {
         return Err("UI config exceeds 64 KiB.".into());
     }
     let config: Config = serde_json::from_slice(&bytes).map_err(|error| error.to_string())?;
@@ -318,7 +325,7 @@ pub fn save(config: &Config, image: Option<&Path>, directory: &Path) -> Result<S
     Ok(id)
 }
 
-pub fn load_background(path: &Path) -> Result<image::DynamicImage, String> {
+fn background_decoder(path: &Path) -> Result<impl ImageDecoder, String> {
     let file = std::fs::File::open(path).map_err(|error| error.to_string())?;
     if file.metadata().map_err(|error| error.to_string())?.len() > 8 * 1024 * 1024 {
         return Err("Choose a picture smaller than 8 MiB.".into());
@@ -337,13 +344,16 @@ pub fn load_background(path: &Path) -> Result<image::DynamicImage, String> {
     ) {
         return Err("Choose a PNG, JPEG, WebP, or GIF picture.".into());
     }
-    let (width, height) = reader
-        .into_dimensions()
-        .map_err(|error| error.to_string())?;
+    let decoder = reader.into_decoder().map_err(|error| error.to_string())?;
+    let (width, height) = decoder.dimensions();
     if width == 0 || height == 0 || width > 4096 || height > 4096 {
         return Err("Choose a picture up to 4096 x 4096 pixels.".into());
     }
-    image::open(path).map_err(|error| error.to_string())
+    Ok(decoder)
+}
+
+pub fn load_background(path: &Path) -> Result<image::DynamicImage, String> {
+    image::DynamicImage::from_decoder(background_decoder(path)?).map_err(|error| error.to_string())
 }
 
 #[cfg(test)]

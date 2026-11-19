@@ -138,3 +138,28 @@ fn old_packs_keep_full_picture_opacity() {
     let config: Config = serde_json::from_str(r#"{"name":"Existing"}"#).unwrap();
     assert_eq!(config.background_opacity, 1.0);
 }
+
+#[test]
+fn discovers_background_headers_and_validates_pixels_when_loaded() {
+    let root = directory();
+    let picture = root.join("background.png");
+    image::RgbaImage::from_pixel(16, 16, image::Rgba([20, 40, 60, 255]))
+        .save(&picture)
+        .unwrap();
+    let bytes = std::fs::read(&picture).unwrap();
+    let idat = bytes.windows(4).position(|bytes| bytes == b"IDAT").unwrap();
+    std::fs::write(&picture, &bytes[..idat + 5]).unwrap();
+    std::fs::write(
+        root.join("custom.json"),
+        r#"{"name":"Ocean","background_image":"background.png"}"#,
+    )
+    .unwrap();
+
+    let catalog = discover(&root);
+    assert!(catalog.packs.iter().any(|pack| pack.id == "custom"));
+    assert!(load_background(&picture).is_err());
+
+    let installed = root.join("installed");
+    assert!(install(&root.join("custom.json"), &installed).is_err());
+    assert!(!installed.exists());
+}

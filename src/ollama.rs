@@ -465,7 +465,7 @@ pub async fn stream_chat(
 }
 
 async fn stream_chat_inner(
-    request: Request,
+    mut request: Request,
     sender: mpsc::Sender<ProviderEvent>,
     mut cancel: watch::Receiver<bool>,
     compacted: &mut bool,
@@ -543,44 +543,44 @@ async fn stream_chat_inner(
         } else if desktop_enabled {
             system.push_str("\n\nReDox Remote control requires an Ollama model with both vision and tool calling. This model lacks at least one of those capabilities.");
         }
-        let mut messages = vec![json!({"role":"system","content":system})];
-        for input in &request.messages {
-            let mut message = json!({"role":input.role,"content":input.content});
+        let inputs = std::mem::take(&mut request.messages);
+        let task = inputs
+            .iter()
+            .rfind(|input| input.role == "user")
+            .ok_or("Ollama requires a user task.")?
+            .content
+            .clone();
+        let mut messages = Vec::with_capacity(inputs.len() + 1);
+        messages.push(json!({"role":"system","content":system}));
+        for input in inputs {
+            let mut message = json!({"role":input.role});
+            message["content"] = Value::String(input.content);
             if !input.images.is_empty() {
                 if !supports("vision") {
                     return Err("This Ollama model does not support images. Choose a vision model in Agents or remove the image attachments.".into());
                 }
-                let mut images = Vec::new();
-                for path in &input.images {
+                let mut images = Vec::with_capacity(input.images.len());
+                for path in input.images {
                     let metadata = tokio::fs::metadata(&path)
                         .await
                         .map_err(|error| error.to_string())?;
                     if metadata.len() > 20 * 1024 * 1024 {
                         return Err("Image exceeds the 20 MiB limit.".into());
                     }
-                    images.push(
-                        base64::engine::general_purpose::STANDARD.encode(
-                            tokio::fs::read(path)
-                                .await
-                                .map_err(|error| error.to_string())?,
-                        ),
-                    );
+                    let bytes = tokio::fs::read(path)
+                        .await
+                        .map_err(|error| error.to_string())?;
+                    images.push(Value::String(
+                        base64::engine::general_purpose::STANDARD.encode(bytes),
+                    ));
                 }
-                message["images"] = json!(images);
+                message["images"] = Value::Array(images);
             }
             messages.push(message);
         }
-        let task = request
-            .messages
-            .iter()
-            .rev()
-            .find(|input| input.role == "user")
-            .ok_or("Ollama requires a user task.")?
-            .content
-            .clone();
         let checkpoint = request
             .checkpoint
-            .clone()
+            .take()
             .ok_or("Application data folder unavailable for Ollama steps.md.")?;
         let journal = state::Journal::open(checkpoint, workspace.clone(), task).await?;
         let metadata = &info["model_info"];
@@ -646,20 +646,20 @@ async fn stream_chat_inner(
                     .await?;
             }
 
-            let mut body = json!({"model":request.model,"messages":conversation.messages,"stream":true,"options":{"num_ctx":context,"num_predict":output}});
-            if let Some(keep_alive) = request.settings.keep_alive {
-                body["keep_alive"] = json!(keep_alive);
-            }
-            if request.settings.cpu_only {
-                body["options"]["num_gpu"] = json!(0);
-            }
-            if with_project_tools || with_desktop {
-                body["tools"] = conversation.definitions.clone();
-            }
             let thinking = rust_profile && supports("thinking") && !direct_answer;
-            if supports("thinking") {
-                body["think"] = json!(thinking);
-            }
+            let body = ChatBody {
+                model: &request.model,
+                messages: &conversation.messages,
+                stream: true,
+                options: ChatOptions {
+                    num_ctx: context,
+                    num_predict: output,
+                    num_gpu: request.settings.cpu_only.then_some(0),
+                },
+                keep_alive: request.settings.keep_alive,
+                tools: (with_project_tools || with_desktop).then_some(&conversation.definitions),
+                think: supports("thinking").then_some(thinking),
+            };
             let mut preview = ReplyPreview {
                 offset: output_offset,
                 visible: false,
@@ -843,6 +843,28 @@ async fn stream_chat_inner(
     }
 }
 
+#[derive(Serialize)]
+struct ChatBody<'a> {
+    model: &'a str,
+    messages: &'a [Value],
+    stream: bool,
+    options: ChatOptions,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    keep_alive: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tools: Option<&'a Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    think: Option<bool>,
+}
+
+#[derive(Serialize)]
+struct ChatOptions {
+    num_ctx: u32,
+    num_predict: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    num_gpu: Option<u8>,
+}
+
 struct ReplyPreview {
     offset: usize,
     visible: bool,
@@ -871,7 +893,7 @@ impl ReplyPreview {
 async fn stream_reply(
     client: &reqwest::Client,
     url: &url::Url,
-    body: &Value,
+    body: &ChatBody<'_>,
     sender: &mpsc::Sender<ProviderEvent>,
     preview: &mut ReplyPreview,
 ) -> Result<Reply, RequestError> {
@@ -885,39 +907,45 @@ async fn stream_reply(
     let mut reply = Reply::default();
     let mut buffer = Vec::new();
     let mut replace = preview.visible;
+    const MAX_RECORD_BYTES: usize = 2 * 1024 * 1024;
 
     while let Some(chunk) = response
         .chunk()
         .await
         .map_err(|error| RequestError::transport("Ollama stream failed", error))?
     {
-        buffer.extend_from_slice(&chunk);
-        while let Some(end) = buffer.iter().position(|byte| *byte == b'\n') {
-            if end > 2 * 1024 * 1024 {
+        for part in chunk.split_inclusive(|byte| *byte == b'\n') {
+            let record = part.strip_suffix(b"\n");
+            let bytes = record.unwrap_or(part);
+            if bytes.len() > MAX_RECORD_BYTES - buffer.len() {
                 return Err(RequestError::terminal(
                     "Ollama stream record exceeded the 2 MiB limit.",
                 ));
             }
-            let line: Vec<_> = buffer.drain(..=end).collect();
-            if line.iter().all(u8::is_ascii_whitespace) {
+            if record.is_none() {
+                buffer.extend_from_slice(bytes);
                 continue;
             }
 
-            let content = reply.accept(&line)?;
-            if !content.is_empty() {
-                preview.publish(sender, content, &mut replace).await?;
+            let line = if buffer.is_empty() {
+                bytes
+            } else {
+                buffer.extend_from_slice(bytes);
+                &buffer
+            };
+            if !line.iter().all(u8::is_ascii_whitespace) {
+                let content = reply.accept(line)?;
+                if !content.is_empty() {
+                    preview.publish(sender, content, &mut replace).await?;
+                }
             }
+            buffer.clear();
             if reply.done {
                 break;
             }
         }
         if reply.done {
             break;
-        }
-        if buffer.len() > 2 * 1024 * 1024 {
-            return Err(RequestError::terminal(
-                "Ollama stream record exceeded the 2 MiB limit.",
-            ));
         }
     }
 
@@ -932,7 +960,7 @@ async fn stream_reply(
             "Ollama disconnected before completing the response.",
         ));
     }
-    let exhausted_reasoning = body["think"] == true && reply.reasoning_exhausted();
+    let exhausted_reasoning = body.think == Some(true) && reply.reasoning_exhausted();
     if !exhausted_reasoning
         && reply.content.trim().is_empty()
         && (reply.calls.is_empty() || reply.truncated)

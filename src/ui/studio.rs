@@ -206,6 +206,9 @@ impl ReDox {
         let mut link = ctx
             .data_mut(|data| data.get_temp::<StudioLink>(key))
             .unwrap_or_default();
+        if !self.ui_preferences.follow_studio && link.linked.is_none() {
+            return;
+        }
         if link.checked.elapsed() < std::time::Duration::from_millis(500) {
             return;
         }

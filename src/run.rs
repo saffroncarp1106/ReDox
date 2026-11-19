@@ -105,7 +105,7 @@ impl Running {
                         if activity.observe_escape(crate::desktop::escape_pressed()) {
                             let already_cancelled = *stop.borrow();
                             if !already_cancelled { let _ = stop.send(true); }
-                            context.request_repaint();
+                            context.request_repaint_of(egui::ViewportId::ROOT);
                         }
                         continue;
                     }
@@ -138,8 +138,13 @@ impl Running {
                     return;
                 }
 
-                if !streamed_text {
-                    context.request_repaint();
+                if streamed_text {
+                    context.request_repaint_after_for(
+                        std::time::Duration::from_millis(32),
+                        egui::ViewportId::ROOT,
+                    );
+                } else {
+                    context.request_repaint_of(egui::ViewportId::ROOT);
                 }
             }
 
@@ -157,7 +162,7 @@ impl Running {
             };
 
             let _ = sender.send(RunEvent { run: id, update }).await;
-            context.request_repaint();
+            context.request_repaint_of(egui::ViewportId::ROOT);
         });
 
         Self {
@@ -190,9 +195,12 @@ impl Drop for Running {
 }
 
 pub fn apply_event(session: &mut Session, active: Option<RunId>, event: RunEvent) -> bool {
-    if active != Some(event.run) || session.run_message_mut(event.run).is_none() {
+    if active != Some(event.run) {
         return false;
     }
+    let Some(message) = session.run_message_mut(event.run) else {
+        return false;
+    };
 
     match event.update {
         Update::Feedback(id, result) => {
@@ -256,30 +264,22 @@ pub fn apply_event(session: &mut Session, active: Option<RunId>, event: RunEvent
         }
         Update::Status(_) | Update::Approval(_) => false,
         Update::Activity { turn_id, update } => {
-            if let Some(message) = session.run_message_mut(event.run) {
-                message.activity.turn_id = turn_id;
-                match update {
-                    crate::activity::ActivityUpdate::Command(mut command) => {
-                        command.offset = message.content.len();
-                        message.activity.record_command(command);
-                    }
-                    crate::activity::ActivityUpdate::Diff(diff) => {
-                        message.activity.replace_diff(&diff)
-                    }
+            message.activity.turn_id = turn_id;
+            match update {
+                crate::activity::ActivityUpdate::Command(mut command) => {
+                    command.offset = message.content.len();
+                    message.activity.record_command(command);
                 }
+                crate::activity::ActivityUpdate::Diff(diff) => message.activity.replace_diff(&diff),
             }
             false
         }
         Update::Content(text) => {
-            if let Some(message) = session.run_message_mut(event.run) {
-                message.content.push_str(&text);
-            }
+            message.content.push_str(&text);
             false
         }
         Update::ReplaceContent { offset, text } => {
-            if let Some(message) = session.run_message_mut(event.run)
-                && message.content.is_char_boundary(offset)
-            {
+            if message.content.is_char_boundary(offset) {
                 message.content.truncate(offset);
                 message.content.push_str(&text);
             }

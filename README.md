@@ -159,6 +159,7 @@ Video links (MP4, WebM, MOV, MKV, AVI, M4V) show **Play video**, opening the fil
 
 Both Codex and Gemini layouts now use the shared Markdown/math renderer in `src/ui/markdown.rs`. Equations, fractions, powers, subscripts, logarithms, headings, links, lists, and tables are formatted. Inline math accepts `$...$` or `\(...\)`; display math accepts `$$...$$` or `\[...\]`. Code blocks retain literal source and indentation, including HTML and LaTeX code examples. Right-click an equation to copy its LaTeX. Unsupported equations remain readable as source with an explanation on hover.
 
+Long conversations lay out the messages around the viewport. While a reply is streaming, scrolling away keeps your place. **Jump to latest** resumes following the reply.
 
 ## Verification
 

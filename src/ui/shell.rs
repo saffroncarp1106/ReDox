@@ -511,8 +511,8 @@ impl ReDox {
                 .chats
                 .iter()
                 .rev()
-                .filter(visible)
                 .filter(|chat| chat.workspace.as_ref() == Some(&path))
+                .filter(visible)
                 .map(|chat| (chat.id, chat.title.clone()))
                 .collect();
             if chats.is_empty() {
@@ -553,17 +553,9 @@ impl ReDox {
     }
 
     fn chat_rows(&mut self, ui: &mut egui::Ui, chats: &[(Uuid, String)], indent: f32) {
+        let running_chat = self.running.as_ref().map(|run| run.id.chat);
         for (id, title) in chats {
-            let running = self
-                .session
-                .chats
-                .iter()
-                .find(|chat| chat.id == *id)
-                .is_some_and(|chat| {
-                    chat.messages
-                        .iter()
-                        .any(|message| message.status == redox::domain::MessageStatus::Streaming)
-                });
+            let running = running_chat == Some(*id);
             let (response, archive) = chat_row(
                 ui,
                 title,
@@ -668,6 +660,16 @@ impl ReDox {
             .session
             .active()
             .and_then(|chat| chat.thread_id.clone());
+        let running_thread = self
+            .running
+            .as_ref()
+            .and_then(|run| {
+                self.session
+                    .chats
+                    .iter()
+                    .find(|chat| chat.id == run.id.chat)
+            })
+            .and_then(|chat| chat.thread_id.clone());
         let rows = |ui: &mut egui::Ui| {
             for (id, title, cwd) in entries {
                 let title = if title.is_empty() {
@@ -675,16 +677,7 @@ impl ReDox {
                 } else {
                     &title
                 };
-                let running = self
-                    .session
-                    .chats
-                    .iter()
-                    .filter(|chat| chat.thread_id.as_deref() == Some(id.as_str()))
-                    .any(|chat| {
-                        chat.messages.iter().any(|message| {
-                            message.status == redox::domain::MessageStatus::Streaming
-                        })
-                    });
+                let running = running_thread.as_ref() == Some(&id);
                 let (response, archive) = chat_row(
                     ui,
                     title,

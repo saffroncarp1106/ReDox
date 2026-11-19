@@ -612,9 +612,11 @@ impl Session {
     pub fn run_message_mut(&mut self, run: RunId) -> Option<&mut Message> {
         self.chats
             .iter_mut()
+            .rev()
             .find(|chat| chat.id == run.chat)?
             .messages
             .iter_mut()
+            .rev()
             .find(|message| message.id == run.message)
             .filter(|message| message.status == MessageStatus::Streaming)
     }

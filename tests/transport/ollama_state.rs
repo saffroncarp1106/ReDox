@@ -106,3 +106,37 @@ fn prompt_estimation_benchmark() {
         );
     }
 }
+
+#[test]
+#[ignore = "release benchmark with a synthetic 6 MiB Ollama journal"]
+fn checkpoint_save_benchmark() {
+    let path = checkpoint_path(uuid::Uuid::new_v4()).unwrap();
+    let journal = Journal {
+        path,
+        progress: Progress {
+            task: "Synthetic benchmark".into(),
+            actions: (0..96)
+                .map(|index| {
+                    format!(
+                        "Tool result {index}\n{}",
+                        "Some recorded output.\n".repeat(2978)
+                    )
+                })
+                .collect(),
+            ..Progress::default()
+        },
+    };
+    let mut times = Vec::new();
+    for _ in 0..16 {
+        let start = std::time::Instant::now();
+        journal.save().unwrap();
+        times.push(start.elapsed().as_secs_f64() * 1_000.0);
+    }
+    times.sort_by(f64::total_cmp);
+    let written = std::fs::metadata(&journal.path).unwrap().len();
+    println!(
+        "CHECKPOINT_SAVE {written} bytes median_ms {:.3}",
+        times[times.len() / 2]
+    );
+    std::fs::remove_dir_all(journal.path.parent().unwrap()).unwrap();
+}

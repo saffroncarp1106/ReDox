@@ -172,7 +172,7 @@ impl ReDox {
             .find(|pack| pack.id == selected)
             .unwrap_or(&ui_catalog.packs[0])
             .clone();
-        let ui_error = if active_ui.id != selected {
+        let mut ui_error = if active_ui.id != selected {
             Some(format!("UI '{selected}' is unavailable. Using Codex."))
         } else {
             None
@@ -186,22 +186,35 @@ impl ReDox {
         }
         theme::set_palette(palette);
         theme::apply(&context.egui_ctx, &active_ui.config.layout);
+        if design.is_none() {
+            context
+                .egui_ctx
+                .options_mut(|options| options.reduce_texture_memory = true);
+        }
         let ui_background = active_ui
             .config
             .background_image
             .as_deref()
-            .and_then(|asset| ui::packs::asset_path(&active_ui.path, asset).ok())
-            .and_then(|path| image::open(path).ok())
-            .map(|image| {
-                let rgba = image.to_rgba8();
-                context.egui_ctx.load_texture(
-                    "ui_pack_background",
-                    egui::ColorImage::from_rgba_unmultiplied(
-                        [rgba.width() as usize, rgba.height() as usize],
-                        rgba.as_raw(),
-                    ),
-                    egui::TextureOptions::LINEAR,
-                )
+            .and_then(|asset| {
+                let image = ui::packs::asset_path(&active_ui.path, asset)
+                    .and_then(|path| ui::packs::load_background(&path));
+                match image {
+                    Ok(image) => {
+                        let rgba = image.into_rgba8();
+                        Some(context.egui_ctx.load_texture(
+                            "ui_pack_background",
+                            egui::ColorImage::from_rgba_unmultiplied(
+                                [rgba.width() as usize, rgba.height() as usize],
+                                rgba.as_raw(),
+                            ),
+                            egui::TextureOptions::LINEAR,
+                        ))
+                    }
+                    Err(error) => {
+                        ui_error = Some(format!("Could not load the UI background: {error}"));
+                        None
+                    }
+                }
             });
         let sidebar_visible = ui_preferences
             .sidebars
@@ -1179,12 +1192,6 @@ impl ReDox {
             let active = self.running.as_ref().map(|running| running.id);
             let id = event.run;
             let completed = matches!(&event.update, Update::Complete);
-            let local = self
-                .session
-                .chats
-                .iter()
-                .find(|chat| chat.id == id.chat)
-                .is_some_and(|chat| chat.provider == Provider::Ollama);
 
             if active == Some(id) {
                 match event.update {
@@ -1206,20 +1213,24 @@ impl ReDox {
             }
 
             if run::apply_event(&mut self.session, active, event) {
+                let chat = self
+                    .session
+                    .chats
+                    .iter()
+                    .rev()
+                    .find(|chat| chat.id == id.chat);
+                let local = chat.is_some_and(|chat| chat.provider == Provider::Ollama);
                 if completed {
                     redox::notifications::response_complete();
                 }
                 self.running = None;
                 self.desktop_overlay = None;
                 self.approval = None;
-                self.status = self
-                    .session
-                    .chats
-                    .iter()
-                    .find(|chat| chat.id == id.chat)
+                self.status = chat
                     .and_then(|chat| {
                         chat.messages
                             .iter()
+                            .rev()
                             .find(|message| message.id == id.message)
                     })
                     .and_then(|message| message.error.clone())
@@ -1531,9 +1542,7 @@ impl eframe::App for ReDox {
             }
         }
 
-        if self.running.is_some() {
-            ui::request_animation_frame(context);
-        } else if self
+        if self
             .login_task
             .as_ref()
             .is_some_and(|task| !task.is_finished())
@@ -1608,3 +1617,7 @@ mod drop_tests {
         assert_eq!(classify(&["theme.json", "photo.png"]), DropKind::Attachment);
     }
 }
+
+#[cfg(all(test, feature = "design-export"))]
+#[path = "../tests/perf/desktop.rs"]
+mod performance_tests;
