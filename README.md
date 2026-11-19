@@ -14,7 +14,9 @@ Coverage currently includes outgoing Wi-Fi and Ethernet traffic. GPU percentage,
 
 On Windows, open `Launch ReDox.cmd` to rebuild changed project files and then start the updated release executable. Cargo skips unchanged work. Use `Launch ReDox.cmd --debug` for a debug build. A failed build stops the launcher instead of starting an older executable. This uses local source files and does not download source updates. Rust and the Visual Studio C++ build tools are required.
 
-On macOS or Linux, with Rust and the native platform build dependencies installed, run `cargo run --locked --bin redox`.
+On macOS, with Rust and the native build tools installed, run `./"Mac Build.sh"` to build and launch ReDox in debug mode. Use `./"Mac Build.sh" --release` for an optimized build.
+
+On Linux, with Rust and the native platform build dependencies installed, run `cargo run --locked --bin redox`.
 
 For faster edit/build cycles, use `Launch ReDox.cmd --debug` or `cargo build --locked --bin redox`. Development builds retain backtrace line information with reduced debug symbols. For native debugging with local variables, set `CARGO_PROFILE_DEV_DEBUG=2` before building; changing this setting rebuilds affected artifacts. See [build speed measurements](docs/BUILD_SPEED.md) for the reproducible benchmark and tradeoffs.
 
