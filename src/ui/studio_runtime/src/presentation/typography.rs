@@ -1,5 +1,3 @@
-use eframe::egui;
-
 pub const FACES: [(&str, &str); 5] = [
     ("redox.tahoma", "tahoma.ttf"),
     ("redox.tahoma.bold", "tahomabd.ttf"),

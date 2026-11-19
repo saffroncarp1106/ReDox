@@ -18,7 +18,7 @@ mod dialogs;
 mod gemini;
 mod icons;
 mod markdown;
-mod media;
+pub(super) mod media;
 pub(super) mod packs;
 mod picker;
 pub(super) mod project_window;

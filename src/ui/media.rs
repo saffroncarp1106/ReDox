@@ -4,6 +4,9 @@ use std::path::{Path, PathBuf};
 use eframe::egui;
 use pulldown_cmark::{Event, Parser, Tag};
 
+mod http;
+pub(in crate::app) use http::install as install_http_loader;
+
 pub(super) struct Reference {
     pub range: Range<usize>,
     pub destination: String,

@@ -111,3 +111,72 @@ fn local_png_jpeg_webp_and_animated_gif_decode_without_a_model_call() {
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
 }
+
+#[tokio::test]
+async fn http_image_loader_caches_errors_and_retries_with_the_same_url() {
+    use egui::load::{BytesPoll, LoadError};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let uri = format!("http://{}/image.png", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        let mut png = std::io::Cursor::new(Vec::new());
+        image::RgbaImage::from_pixel(3, 2, image::Rgba([210, 80, 40, 255]))
+            .write_to(&mut png, image::ImageFormat::Png)
+            .unwrap();
+        let png = png.into_inner();
+        for (status, body) in [("404 Not Found", &[][..]), ("200 OK", png.as_slice())] {
+            let (mut connection, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            loop {
+                let mut chunk = [0; 1024];
+                let read = connection.read(&mut chunk).await.unwrap();
+                assert_ne!(read, 0);
+                request.extend_from_slice(&chunk[..read]);
+                if request.ends_with(b"\r\n\r\n") {
+                    break;
+                }
+            }
+            let headers = format!(
+                "HTTP/1.1 {status}\r\nContent-Type: image/png\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            connection.write_all(headers.as_bytes()).await.unwrap();
+            connection.write_all(body).await.unwrap();
+        }
+    });
+
+    let context = egui::Context::default();
+    egui_extras::install_image_loaders(&context);
+    http::install(&context, &tokio::runtime::Handle::current());
+
+    async fn load(context: &egui::Context, uri: &str) -> Result<BytesPoll, LoadError> {
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                match context.try_load_bytes(uri) {
+                    Ok(BytesPoll::Pending { .. }) => {
+                        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                    }
+                    result => return result,
+                }
+            }
+        })
+        .await
+        .unwrap()
+    }
+
+    for _ in 0..2 {
+        assert!(matches!(
+            load(&context, &uri).await,
+            Err(LoadError::Loading(error)) if error.contains("404")
+        ));
+    }
+    context.forget_image(&uri);
+
+    let BytesPoll::Ready { bytes, mime, .. } = load(&context, &uri).await.unwrap() else {
+        panic!("HTTP image data was unavailable");
+    };
+    assert_eq!(mime.as_deref(), Some("image/png"));
+    assert_eq!(image::load_from_memory(bytes.as_ref()).unwrap().width(), 3);
+    server.await.unwrap();
+}

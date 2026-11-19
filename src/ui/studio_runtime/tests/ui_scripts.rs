@@ -92,7 +92,7 @@ fn converting_artwork_to_editable_styling_keeps_calls_and_supports_undo() {
 
 #[test]
 fn png_replacement_keeps_editable_captions_and_live_picker_values_above_the_image() {
-    use eframe::egui::{self, Pos2, Rect, Vec2};
+    use egui::{Pos2, Rect, Vec2};
     for kind in [Kind::Button, Kind::Text] {
         let mut doc = Document::blank();
         let mut node = Node::new(1, kind, 0., 0.);
@@ -178,7 +178,7 @@ fn png_replacement_keeps_editable_captions_and_live_picker_values_above_the_imag
 
 #[test]
 fn interactive_scene_dispatches_topmost_visible_call() {
-    use eframe::egui::{self, Event, Modifiers, PointerButton, Pos2, Rect, Vec2};
+    use egui::{Event, Modifiers, PointerButton, Pos2, Rect, Vec2};
     let mut doc = Document::blank();
     for (id, action) in [(1, UiAction::History), (2, UiAction::Settings)] {
         let mut node = Node::new(id, Kind::Button, 0., 0.);
@@ -228,7 +228,7 @@ fn interactive_scene_dispatches_topmost_visible_call() {
 
 #[test]
 fn controls_in_different_viewports_have_independent_focus_and_popup_ids() {
-    use eframe::egui::{self, Pos2, Rect, Vec2};
+    use egui::{Pos2, Rect, Vec2};
     let doc = {
         let mut doc = Document::blank();
         let mut node = Node::new(1, Kind::Button, 0., 0.);
@@ -265,7 +265,7 @@ fn controls_in_different_viewports_have_independent_focus_and_popup_ids() {
 
 #[test]
 fn interactive_fit_does_not_force_large_designs_to_overflow_the_viewport() {
-    use eframe::egui::{self, Pos2, Rect, Vec2};
+    use egui::{Pos2, Rect, Vec2};
     let ctx = egui::Context::default();
     let mut doc = Document::blank();
     let mut frame = Node::new(1, Kind::Frame, 0., 0.);
@@ -302,7 +302,7 @@ fn interactive_fit_does_not_force_large_designs_to_overflow_the_viewport() {
 
 #[test]
 fn composer_has_one_tab_stop_and_focuses_the_text_editor() {
-    use eframe::egui::{self, Event, Key, Modifiers, Pos2, Rect, Vec2};
+    use egui::{Event, Key, Modifiers, Pos2, Rect, Vec2};
     let ctx = egui::Context::default();
     let mut doc = Document::blank();
     let mut node = Node::new(1, Kind::Input, 0., 0.);
@@ -354,7 +354,7 @@ fn composer_has_one_tab_stop_and_focuses_the_text_editor() {
 
 #[test]
 fn changing_a_captured_labels_font_family_invalidates_its_original_glyph_mesh() {
-    use eframe::egui::{self, Pos2, Rect, Vec2};
+    use egui::{Pos2, Rect, Vec2};
     let mut doc = redox_studio::originals::load("win98").unwrap();
     let node = doc.pages[0]
         .nodes
@@ -402,7 +402,7 @@ fn changing_a_captured_labels_font_family_invalidates_its_original_glyph_mesh() 
 
 #[test]
 fn resizing_and_aligning_captured_text_reflows_it_without_stretching_glyphs() {
-    use eframe::egui::{self, Pos2, Rect, Vec2};
+    use egui::{Pos2, Rect, Vec2};
     use redox_studio::document::TextAlign;
     let mut doc = redox_studio::originals::load("win98").unwrap();
     let label = doc.pages[0]
@@ -462,7 +462,7 @@ fn resizing_and_aligning_captured_text_reflows_it_without_stretching_glyphs() {
 
 #[test]
 fn alignment_and_bounds_edits_invalidate_captured_glyphs_even_when_text_is_unchanged() {
-    use eframe::egui::{self, Pos2, Rect, Vec2};
+    use egui::{Pos2, Rect, Vec2};
     use redox_studio::document::TextAlign;
     let doc = redox_studio::originals::load("win98").unwrap();
     let original = doc.pages[0]
@@ -509,7 +509,7 @@ fn alignment_and_bounds_edits_invalidate_captured_glyphs_even_when_text_is_uncha
 
 #[test]
 fn unchanged_source_text_uses_live_fonts_at_each_zoom_and_monitor_scale() {
-    use eframe::egui::{self, Pos2, Rect, Vec2};
+    use egui::{Pos2, Rect, Vec2};
     let mut doc = redox_studio::originals::load("win98").unwrap();
     let mut label = doc.pages[0]
         .nodes

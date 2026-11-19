@@ -236,6 +236,9 @@ impl ReDox {
                 .enable_all()
                 .build()
         };
+        if let Ok(runtime) = &runtime {
+            ui::media::install_http_loader(&context.egui_ctx, runtime.handle());
+        }
         let status = match &runtime {
             Ok(_) => "Ready. Choose a model in settings or start a chat.".into(),
             Err(error) => format!("Background runtime unavailable: {error}"),

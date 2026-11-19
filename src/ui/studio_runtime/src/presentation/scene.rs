@@ -1,5 +1,5 @@
 use crate::document::{Font, Kind, Node, Page, TextAlign};
-use eframe::egui::{self, Color32, FontFamily, FontId, Pos2, Rect, Stroke, StrokeKind, Vec2};
+use egui::{Color32, FontFamily, FontId, Pos2, Rect, Stroke, StrokeKind, Vec2};
 
 const MAX_CACHED_TEXTURES: usize = 32;
 const MAX_CACHED_PIXELS: usize = 16 * 1024 * 1024;

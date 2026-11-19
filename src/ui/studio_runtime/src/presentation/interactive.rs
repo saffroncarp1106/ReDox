@@ -3,7 +3,7 @@ use crate::{
     document::{Document, Kind, Node, Page, TextAlign},
     presentation::scene::{self, View},
 };
-use eframe::egui::{self, Color32, FontId, Response, Sense, Vec2};
+use egui::{Color32, FontId, Response, Sense, Vec2};
 
 #[derive(Default)]
 pub struct Values<'a> {

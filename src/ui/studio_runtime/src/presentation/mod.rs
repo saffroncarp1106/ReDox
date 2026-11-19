@@ -6,7 +6,7 @@ use crate::{
     document::{Document, Kind},
     editor::union,
 };
-use eframe::egui::{self, Pos2, Rect, Vec2};
+use egui::{Pos2, Rect, Vec2};
 use std::collections::HashMap;
 
 pub fn render_document(
