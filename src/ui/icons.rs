@@ -37,6 +37,7 @@ pub enum Icon {
     Waveform,
     ClaudeMark,
     Stop,
+    UsageMark,
 }
 
 pub fn button(ui: &mut Ui, icon: Icon, tooltip: &str) -> Response {
@@ -107,6 +108,7 @@ impl Icon {
             Self::Waveform => icon_svg!("waveform"),
             Self::ClaudeMark => icon_svg!("claude-mark"),
             Self::Stop => icon_svg!("stop"),
+            Self::UsageMark => icon_svg!("usage-mark"),
         }
     }
 }

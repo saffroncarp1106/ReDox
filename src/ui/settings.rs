@@ -469,7 +469,7 @@ impl ReDox {
         }
         ui.add_space(20.0);
         ui.label(RichText::new("Usage limits").font(theme::semibold(14.0)));
-        ui.label(RichText::new("Use the reticle button above your profile at the bottom left to see remaining quota and reset times.").color(muted()));
+        ui.label(RichText::new("Hover over a usage meter to see the percentage left. Open Usage limits for reset times and the full breakdown.").color(muted()));
         ui.add_space(12.0);
         ui.label(RichText::new(&self.status).small().color(muted()));
     }

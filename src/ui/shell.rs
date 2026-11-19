@@ -280,13 +280,7 @@ impl ReDox {
                         self.settings_open = true;
                     }
                     ui.add_space(12.0);
-                    if icons::button(ui, Icon::Reticle, "Usage limits").clicked() {
-                        if self.usage_open {
-                            self.usage_open = false;
-                        } else {
-                            self.open_usage(context);
-                        }
-                    }
+                    self.usage_button(ui);
                 });
             });
     }

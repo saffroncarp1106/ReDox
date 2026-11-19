@@ -66,13 +66,7 @@ impl ReDox {
                     if icons::button(ui, Icon::Settings, "Settings").clicked() {
                         self.settings_open = true;
                     }
-                    if icons::button(ui, Icon::Reticle, "Usage limits").clicked() {
-                        if self.usage_open {
-                            self.usage_open = false;
-                        } else {
-                            self.open_usage(context);
-                        }
-                    }
+                    self.usage_button(ui);
                 });
             });
     }
