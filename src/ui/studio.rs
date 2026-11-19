@@ -157,12 +157,12 @@ impl LiveSkin {
     }
 }
 
-fn conversation(
-    ui: &mut egui::Ui,
-    control: &interactive::Control<'_>,
-    chat: &redox::domain::Chat,
-    codex_mode: bool,
-) {
+fn conversation(ui: &mut egui::Ui, control: &interactive::Control<'_>, app: &mut ReDox) {
+    let Some(chat) = app.session.active() else {
+        return;
+    };
+    let chat_id = chat.id;
+    let empty = chat.messages.is_empty();
     interactive::content(ui, control, |ui| {
         let mut palette = super::theme::palette();
         if control.node.fill[3] > 0 {
@@ -181,16 +181,10 @@ fn conversation(
         };
         palette.input_background = palette.surface;
         super::theme::with_palette(palette, || {
-            if chat.messages.is_empty() {
+            if empty {
                 ui.label(&control.node.text);
             } else {
-                super::conversation::render_transcript(
-                    ui,
-                    chat,
-                    ("skin_conversation", control.response.id, chat.id),
-                    0.,
-                    codex_mode,
-                );
+                app.chat_transcript(ui, ("skin_conversation", control.response.id, chat_id), 0.);
             }
         });
     });
@@ -470,9 +464,7 @@ impl ReDox {
                                 }
                             }
                             UiAction::Conversation => {
-                                if let Some(chat) = self.session.active() {
-                                    conversation(ui, control, chat, self.ui_preferences.codex_mode);
-                                }
+                                conversation(ui, control, self);
                             }
                             UiAction::Model | UiAction::ModelEffort => {
                                 egui::Popup::menu(&control.response).width(220.).show(|ui| {

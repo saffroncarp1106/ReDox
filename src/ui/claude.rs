@@ -148,14 +148,8 @@ impl ReDox {
                         ui.add_space(20.0);
                     });
                     self.claude_centered_composer(ui, context);
-                } else if let Some(chat) = self.session.active() {
-                    super::conversation::render_transcript(
-                        ui,
-                        chat,
-                        ("claude_chat", self.session.active_chat),
-                        48.0,
-                        self.ui_preferences.codex_mode,
-                    );
+                } else {
+                    self.chat_transcript(ui, ("claude_chat", self.session.active_chat), 48.0);
                 }
             });
     }
@@ -381,9 +375,11 @@ impl ReDox {
                 self.dispatch_ui_action(redox_studio::actions::UiAction::Stop, ui.ctx());
             }
         }
-        let ready = self.session.active().is_some_and(|chat| {
-            !chat.archived && (!chat.draft.trim().is_empty() || !chat.attachments.is_empty())
-        }) && self.runtime.is_some()
+        let ready = !self.is_editing_message()
+            && self.session.active().is_some_and(|chat| {
+                !chat.archived && (!chat.draft.trim().is_empty() || !chat.attachments.is_empty())
+            })
+            && self.runtime.is_some()
             && !self.picking_files;
         ui.add_enabled_ui(ready, |ui| {
             let (rect, response) =

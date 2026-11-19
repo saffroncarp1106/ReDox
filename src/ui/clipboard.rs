@@ -64,6 +64,7 @@ impl ReDox {
         if !requested
             || input.viewport_id != context.viewport_id()
             || self.startup.is_active()
+            || self.is_editing_message()
             || self.rename_open
             || (self.settings_open && !self.ui_preferences.floating_windows)
         {

@@ -19,6 +19,7 @@ mod gemini;
 mod icons;
 mod markdown;
 pub(super) mod media;
+mod message_edit;
 pub(super) mod packs;
 mod picker;
 pub(super) mod project_window;
@@ -131,6 +132,9 @@ impl ReDox {
     pub(super) fn draw_ui(&mut self, context: &egui::Context) {
         use studio::StudioSurface;
 
+        if self.message_edit.is_some() && !self.is_editing_message() {
+            self.close_message_edit(context);
+        }
         self.sync_studio_link(context);
         let mut palette = self.active_ui.config.colors().unwrap_or_default();
         if let Some(colors) = self.ui_preferences.text_colors.get(&self.active_ui.id) {

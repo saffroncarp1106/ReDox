@@ -27,7 +27,7 @@ fn frame(context: &egui::Context, items: &[Message], width: f32, events: Vec<Eve
         },
         |context| {
             egui::CentralPanel::default().show(context, |ui| {
-                show(ui, items, "test", 0.0, false, |ui, message| {
+                show(ui, items, "test", 0.0, false, false, |ui, message| {
                     painted.push(message.id);
                     ui.label(&message.content);
                     if message.status == MessageStatus::Streaming {

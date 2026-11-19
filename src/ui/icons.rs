@@ -22,6 +22,7 @@ pub enum Icon {
     Mic,
     ArrowUp,
     Copy,
+    Edit,
     Minimize,
     Maximize,
     Close,
@@ -275,6 +276,17 @@ pub fn paint(painter: &egui::Painter, rect: Rect, icon: Icon, color: Color32) {
         Icon::Copy => {
             box_at((7., 3.), (21., 17.), 3);
             path(&[(6., 8.), (3., 8.), (3., 22.), (16., 22.), (16., 19.)]);
+        }
+        Icon::Edit => {
+            path(&[
+                (4., 20.),
+                (6., 14.),
+                (17., 3.),
+                (21., 7.),
+                (10., 18.),
+                (4., 20.),
+            ]);
+            painter.line_segment([point(14., 6.), point(18., 10.)], stroke);
         }
         Icon::Minimize => path(&[(5., 12.), (19., 12.)]),
         Icon::Maximize => box_at((5., 5.), (19., 19.), 1),

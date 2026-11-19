@@ -22,6 +22,7 @@ pub enum Update {
     Cancelled,
     Failed(String),
     Thread(String),
+    Turn(String),
     Status(String),
     Approval(Approval),
 }
@@ -118,6 +119,7 @@ impl Running {
                     ProviderEvent::Delegation(event) => Update::Delegation(event),
                     ProviderEvent::Metrics(stats) => Update::Metrics(stats),
                     ProviderEvent::Thread(thread) => Update::Thread(thread),
+                    ProviderEvent::Turn(turn) => Update::Turn(turn),
                     ProviderEvent::Content(text) => Update::Content(text),
                     ProviderEvent::ReplaceContent { offset, text } => {
                         Update::ReplaceContent { offset, text }
@@ -222,7 +224,10 @@ pub fn apply_event(session: &mut Session, active: Option<RunId>, event: RunEvent
             }
             false
         }
-        Update::Delegation(update) => {
+        Update::Delegation(mut update) => {
+            if let crate::delegation::Event::Started(task) = &mut update {
+                task.parent_message = Some(event.run.message);
+            }
             if let Some(chat) = session
                 .chats
                 .iter_mut()
@@ -251,7 +256,11 @@ pub fn apply_event(session: &mut Session, active: Option<RunId>, event: RunEvent
                 .iter_mut()
                 .find(|chat| chat.id == event.run.chat)
             {
-                chat.thread_id = Some(thread);
+                if chat.thread_id.as_deref() != Some(&thread) {
+                    chat.thread_start =
+                        prompt_for_reply(chat, event.run.message).map(|prompt| prompt.id);
+                    chat.thread_id = Some(thread);
+                }
                 chat.desktop_tools = desktop;
                 chat.delegation_tools = delegation;
                 chat.delegation_tool_version = if delegation {
@@ -259,6 +268,18 @@ pub fn apply_event(session: &mut Session, active: Option<RunId>, event: RunEvent
                 } else {
                     0
                 };
+            }
+            false
+        }
+        Update::Turn(turn) => {
+            if let Some(chat) = session
+                .chats
+                .iter_mut()
+                .rev()
+                .find(|chat| chat.id == event.run.chat)
+                && let Some(prompt) = prompt_for_reply(chat, event.run.message)
+            {
+                prompt.activity.turn_id = turn;
             }
             false
         }
@@ -302,4 +323,18 @@ pub fn apply_event(session: &mut Session, active: Option<RunId>, event: RunEvent
             true
         }
     }
+}
+
+fn prompt_for_reply(
+    chat: &mut crate::domain::Chat,
+    reply: uuid::Uuid,
+) -> Option<&mut crate::domain::Message> {
+    let previous = chat
+        .messages
+        .iter()
+        .rposition(|message| message.id == reply)?
+        .checked_sub(1)?;
+    chat.messages
+        .get_mut(previous)
+        .filter(|message| message.is_editable_prompt())
 }

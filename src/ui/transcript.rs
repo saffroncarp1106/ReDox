@@ -86,6 +86,7 @@ impl Transcript {
             end += lines * geometry.line_height
                 + geometry.gap
                 + 28.0
+                + if message.is_editable_prompt() { 30.0 } else { 0.0 }
                 + images as f32 * super::media::MAX_IMAGE_HEIGHT;
             self.rows.push(Row {
                 id: message.id,
@@ -102,6 +103,7 @@ pub(super) fn show(
     scroll_id: impl std::hash::Hash,
     horizontal_padding: f32,
     show_activity: bool,
+    follow_latest: bool,
     mut render: impl FnMut(&mut egui::Ui, &Message),
 ) {
     let view_id = ui
@@ -142,7 +144,8 @@ pub(super) fn show(
                 .map_or(offset <= 1.0, |(previous, followed)| {
                     followed && (offset - previous).abs() <= 1.0
                 });
-            let follow = std::mem::take(&mut transcript.jump_to_latest) || followed;
+            let follow =
+                std::mem::take(&mut transcript.jump_to_latest) || follow_latest || followed;
             let anchor_index = transcript.row_at(offset);
             let anchor = transcript
                 .rows

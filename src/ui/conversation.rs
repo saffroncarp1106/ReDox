@@ -1,4 +1,5 @@
 use super::icons::{self, Icon};
+use super::message_edit::{Action as EditAction, Controls as EditControls};
 use super::theme::{self, background, muted, text};
 use crate::app::ReDox;
 use eframe::egui::{
@@ -127,7 +128,7 @@ impl ReDox {
                     return;
                 }
 
-                render_transcript(ui, chat, chat.id, 0.0, self.ui_preferences.codex_mode);
+                self.chat_transcript(ui, chat.id, 0.0);
             });
         #[cfg(feature = "design-export")]
         {
@@ -148,6 +149,49 @@ impl ReDox {
         }
         #[cfg(not(feature = "design-export"))]
         let _ = panel;
+    }
+
+    pub(super) fn chat_transcript(
+        &mut self,
+        ui: &mut egui::Ui,
+        scroll_id: impl std::hash::Hash,
+        padding: f32,
+    ) {
+        let enabled = self.can_edit_messages();
+        let Some(chat) = self.session.active() else {
+            return;
+        };
+        let follow_latest = self.follow_edited_chat == Some(chat.id);
+        if follow_latest {
+            self.follow_edited_chat = None;
+        }
+        let mut controls = EditControls {
+            edit: &mut self.message_edit,
+            enabled,
+            can_send: enabled && self.runtime.is_some(),
+            follow_latest,
+            action: None,
+        };
+        render_transcript(
+            ui,
+            chat,
+            scroll_id,
+            padding,
+            self.ui_preferences.codex_mode,
+            Some(&mut controls),
+        );
+        match controls.action {
+            Some(EditAction::Edit(id)) => self.begin_message_edit(id),
+            Some(EditAction::Cancel) => self.close_message_edit(ui.ctx()),
+            Some(EditAction::Send) => self.submit_message_edit(ui.ctx()),
+            Some(EditAction::Switch(message, older)) if enabled => {
+                if let Err(error) = self.session.switch_prompt_version(message, older) {
+                    self.status = error;
+                }
+            }
+            _ => return,
+        }
+        ui.ctx().request_repaint();
     }
 
     pub(super) fn composer(&mut self, context: &egui::Context, parent: Option<&mut egui::Ui>) {
@@ -377,7 +421,8 @@ impl ReDox {
                             }
 
                             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                let can_send = self.runtime.is_some()
+                                let can_send = !self.is_editing_message()
+                                    && self.runtime.is_some()
                                     && !self.picking_files
                                     && self.session.active().is_some_and(|chat| {
                                         !chat.archived
@@ -521,12 +566,13 @@ impl ReDox {
     }
 }
 
-pub(super) fn render_transcript(
+fn render_transcript(
     ui: &mut egui::Ui,
     chat: &Chat,
     scroll_id: impl std::hash::Hash,
     horizontal_padding: f32,
     codex_mode: bool,
+    mut edit: Option<&mut EditControls<'_>>,
 ) {
     ui.spacing_mut().scroll = theme::conversation_scroll();
     super::transcript::show(
@@ -535,7 +581,19 @@ pub(super) fn render_transcript(
         scroll_id,
         horizontal_padding,
         codex_mode,
-        |ui, message| render_message(ui, message, chat.workspace.as_deref(), codex_mode),
+        edit.as_ref().is_some_and(|edit| edit.follow_latest),
+        |ui, message| {
+            if edit
+                .as_deref_mut()
+                .is_some_and(|edit| edit.editing(ui, chat, message))
+            {
+                return;
+            }
+            render_message(ui, message, chat.workspace.as_deref(), codex_mode);
+            if let Some(edit) = &mut edit {
+                edit.row_actions(ui, chat, message);
+            }
+        },
     );
 }
 

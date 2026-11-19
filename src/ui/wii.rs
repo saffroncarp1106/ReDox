@@ -4,7 +4,6 @@ use eframe::egui::{
 };
 
 use super::{
-    conversation::render_transcript,
     icons::{self, Icon},
     theme,
 };
@@ -576,7 +575,7 @@ impl ReDox {
                     );
                 }
                 if !chat.messages.is_empty() {
-                    render_transcript(ui, chat, chat.id, 0.0, self.ui_preferences.codex_mode);
+                    self.chat_transcript(ui, chat.id, 0.0);
                     return;
                 }
 

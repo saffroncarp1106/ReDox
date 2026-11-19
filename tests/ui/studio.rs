@@ -93,7 +93,7 @@ fn live_reload_applies_saved_changes_and_preserves_last_valid_skin() {
 
 #[test]
 fn authored_conversation_renders_active_chat_inside_its_panel_and_restores_theme() {
-    use redox::domain::{Chat, Message, MessageStatus, Role};
+    use redox::domain::{Message, MessageStatus, Role};
     use redox_studio::document::{Kind, Node};
     let ctx = egui::Context::default();
     super::super::theme::apply(&ctx, "codex");
@@ -107,9 +107,14 @@ fn authored_conversation_renders_active_chat_inside_its_panel_and_restores_theme
     panel.ui_script = vec![UiAction::Conversation];
     panel.text = "No messages yet".into();
     document.pages[0].nodes = vec![panel];
-    let mut chat = Chat::new(None);
+    let mut app = ReDox::new_internal(
+        &eframe::CreationContext::_new_kittest(ctx.clone()),
+        None,
+        Default::default(),
+        Some("codex"),
+    );
     let base = super::super::theme::palette();
-    let run = |chat: &Chat| {
+    let run = |app: &mut ReDox| {
         ctx.run(
             egui::RawInput {
                 screen_rect: Some(egui::Rect::from_min_size(
@@ -126,14 +131,14 @@ fn authored_conversation_renders_active_chat_inside_its_panel_and_restores_theme
                         Default::default(),
                         &mut |ui, control| {
                             assert_eq!(control.action, UiAction::Conversation);
-                            conversation(ui, control, chat, true);
+                            conversation(ui, control, app);
                         },
                     );
                 });
             },
         )
     };
-    let empty = run(&chat);
+    let empty = run(&mut app);
     assert!(empty.shapes.iter().any(
         |shape| matches!(&shape.shape, egui::Shape::Text(t) if t.galley.text() == "No messages yet")
     ));
@@ -141,7 +146,7 @@ fn authored_conversation_renders_active_chat_inside_its_panel_and_restores_theme
         (Role::User, "My active prompt"),
         (Role::Assistant, "My active answer"),
     ] {
-        chat.messages.push(Message {
+        app.session.active_mut().unwrap().messages.push(Message {
             id: uuid::Uuid::new_v4(),
             role,
             content: content.into(),
@@ -152,8 +157,8 @@ fn authored_conversation_renders_active_chat_inside_its_panel_and_restores_theme
             activity: Default::default(),
         });
     }
-    run(&chat);
-    let populated = run(&chat);
+    run(&mut app);
+    let populated = run(&mut app);
     for label in ["My active prompt", "My active answer"] {
         let shape = populated
             .shapes

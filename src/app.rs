@@ -9,17 +9,20 @@ use redox::attachments::{Attachment, MAX_ATTACHMENTS};
 use redox::codex::{
     self, Approval, ChatRequest, ConnectionInfo, LoginChallenge, LoginEvent, ModelInfo,
 };
-use redox::domain::{DEFAULT_MODEL, MessageStatus, Provider, Session};
+use redox::domain::{DEFAULT_MODEL, MessageStatus, Provider, RunId, Session};
 use redox::history::{self, ConversationPage, HistoryEntry, HistoryPage};
 use redox::ollama;
 use redox::run::{self, RunEvent, Running, Update};
 use redox::usage::UsageInfo;
 
+#[path = "message_edit.rs"]
+mod message_edit;
 #[path = "ui/mod.rs"]
 mod ui;
 #[path = "ui_actions.rs"]
 mod ui_actions;
 
+use message_edit::MessageEdit;
 use ui::theme;
 
 const STORAGE_KEY: &str = "redox.session.v1";
@@ -51,6 +54,7 @@ enum Event {
         bool,
         Result<ConversationPage, String>,
     ),
+    MessageEditFork(uuid::Uuid, Result<history::CutoffFork, String>),
     Models(Result<ConnectionInfo, String>),
     Logout(Result<(), String>),
     Workspace(Result<Option<PathBuf>, String>),
@@ -66,6 +70,8 @@ pub struct ReDox {
     updates: redox::updates::Updates,
     project_windows: Vec<ui::project_window::ProjectWindow>,
     focus_prompt: bool,
+    message_edit: Option<MessageEdit>,
+    follow_edited_chat: Option<uuid::Uuid>,
     prompt_input_id: Option<egui::Id>,
     paste_gate: ui::clipboard::PasteGate,
     ollama_models: Vec<ollama::Model>,
@@ -266,6 +272,8 @@ impl ReDox {
             presence: redox::discord_presence::Presence::new(),
             updates: redox::updates::Updates::default(),
             focus_prompt: true,
+            message_edit: None,
+            follow_edited_chat: None,
             prompt_input_id: None,
             paste_gate: ui::clipboard::PasteGate::default(),
             ollama_models: Vec::new(),
@@ -531,7 +539,16 @@ impl ReDox {
     }
 
     fn open_history(&mut self, context: &egui::Context, thread: String, older: bool) {
-        if self.running.is_some() || self.history_reading.is_some() {
+        if self.running.is_some() || self.history_reading.is_some() || self.preparing_message_edit()
+        {
+            return;
+        }
+        if !older
+            && let Some(chat) = self.session.chats.iter().find(|chat| {
+                chat.has_prompt_versions() && chat.thread_id.as_deref() == Some(&thread)
+            })
+        {
+            self.session.active_chat = Some(chat.id);
             return;
         }
         let Some(runtime) = &self.runtime else {
@@ -561,6 +578,9 @@ impl ReDox {
     }
 
     fn send_prompt(&mut self, context: &egui::Context) {
+        if self.is_editing_message() {
+            return;
+        }
         if self.running.is_some() {
             if self.picking_files
                 || self.startup.is_active()
@@ -590,12 +610,7 @@ impl ReDox {
     }
 
     fn can_start_prompt(&self) -> bool {
-        !self.startup.is_active()
-            && self.running.is_none()
-            && !self.logging_out
-            && self.runtime.is_some()
-            && !self.picking_files
-            && self.history_reading.is_none()
+        self.can_edit_messages() && self.runtime.is_some()
     }
 
     fn start_prompt(
@@ -615,12 +630,20 @@ impl ReDox {
             return Err(error);
         }
 
-        let runtime = self
-            .runtime
-            .as_ref()
-            .ok_or("Agent runtime is unavailable.")?;
+        if self.runtime.is_none() {
+            return Err("Agent runtime is unavailable.".into());
+        }
         let id = self.session.prepare_selected_run(queued)?;
-        let chat = self.session.active().ok_or("Create a chat first.")?;
+        self.launch_prepared_prompt(context, id);
+        if queued.is_none() {
+            self.attachment_error = None;
+        }
+        Ok(())
+    }
+
+    fn launch_prepared_prompt(&mut self, context: &egui::Context, id: RunId) {
+        let runtime = self.runtime.as_ref().unwrap();
+        let chat = self.session.active().unwrap();
 
         let request = if chat.provider == Provider::Ollama {
             let mut request = ollama::Request::from_chat(chat, self.session.ollama.clone());
@@ -655,15 +678,11 @@ impl ReDox {
             self.run_sender.clone(),
             context.clone(),
         ));
-        if queued.is_none() {
-            self.attachment_error = None;
-        }
         self.status = "Generating...".into();
-        Ok(())
     }
 
     fn dispatch_queued_prompt(&mut self, context: &egui::Context) {
-        if !self.can_start_prompt() {
+        if !self.can_start_prompt() || self.is_editing_message() {
             return;
         }
         let now = Instant::now();
@@ -1331,6 +1350,14 @@ impl ReDox {
                             self.conversation_cursors
                                 .insert(thread, page.next_cursor.clone());
                             let id = history::import(&mut self.session, page, older);
+                            if !older
+                                && self
+                                    .message_edit
+                                    .as_ref()
+                                    .is_some_and(|edit| edit.chat == id)
+                            {
+                                self.close_message_edit(context);
+                            }
                             if self.session.active_chat == origin {
                                 self.session.active_chat = Some(id);
                             }
@@ -1338,6 +1365,9 @@ impl ReDox {
                         }
                         Err(error) => self.history_error = Some(error),
                     }
+                }
+                Event::MessageEditFork(id, result) => {
+                    self.finish_message_edit_fork(context, id, result)
                 }
                 Event::CodexExecutable(Some(path)) => {
                     self.session.codex_path = codex::resolve_executable(&path.to_string_lossy());
@@ -1537,6 +1567,15 @@ impl eframe::App for ReDox {
                 self.settings_open = false;
             } else if self.usage_open {
                 self.usage_open = false;
+            } else if self.is_editing_message() {
+                if !context.input(|input| {
+                    input
+                        .events
+                        .iter()
+                        .any(|event| matches!(event, egui::Event::Ime(_)))
+                }) {
+                    self.close_message_edit(context);
+                }
             } else {
                 self.stop_response();
             }

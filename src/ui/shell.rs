@@ -631,9 +631,16 @@ impl ReDox {
                     .color(egui::Color32::from_rgb(235, 145, 125)),
             );
         }
+        let inactive: std::collections::HashSet<_> = self
+            .session
+            .chats
+            .iter()
+            .flat_map(|chat| chat.inactive_threads())
+            .collect();
         let entries: Vec<_> = self
             .history
             .iter()
+            .filter(|entry| !inactive.contains(entry.id.as_str()))
             .filter(|entry| {
                 self.session
                     .local_archive_overrides

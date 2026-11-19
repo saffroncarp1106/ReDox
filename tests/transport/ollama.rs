@@ -1,4 +1,31 @@
 use super::*;
+
+#[test]
+fn edited_ollama_request_uses_the_revised_path_and_a_new_checkpoint() {
+    use crate::domain::{PromptEdit, Session};
+    let mut session = Session::default();
+    session.new_chat();
+    let chat = session.active_mut().unwrap();
+    chat.set_provider(crate::domain::Provider::Ollama, "test".into());
+    chat.draft = "Old task".into();
+    let run = session.prepare_selected_run(None).unwrap();
+    session.run_message_mut(run).unwrap().content = "Old reply".into();
+    session.finish_run(run, MessageStatus::Complete, None);
+
+    let chat = session.active().unwrap();
+    let checkpoint = Request::from_chat(chat, Settings::default()).checkpoint;
+    let prompt = PromptEdit {
+        chat: chat.id,
+        message: chat.messages[0].id,
+        content: "New task",
+        removed_attachments: &[],
+    };
+    session.prepare_edited_run(prompt, None).unwrap();
+    let request = Request::from_chat(session.active().unwrap(), Settings::default());
+    assert_ne!(request.checkpoint, checkpoint);
+    assert_eq!(request.messages.len(), 1);
+    assert_eq!(request.messages[0].content, "New task");
+}
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 

@@ -3,7 +3,7 @@ use eframe::egui::{
     pos2, vec2,
 };
 
-use super::{conversation::render_transcript, theme, window_frame};
+use super::{theme, window_frame};
 use crate::app::ReDox;
 
 pub(super) const ID: &str = "win98";
@@ -573,13 +573,7 @@ impl ReDox {
                             .filter(|chat| !chat.messages.is_empty())
                         {
                             bevel(ui.painter(), ui.max_rect(), true);
-                            render_transcript(
-                                ui,
-                                chat,
-                                ("win98", chat.id),
-                                30.0,
-                                self.ui_preferences.codex_mode,
-                            );
+                            self.chat_transcript(ui, ("win98", chat.id), 30.0);
                         } else {
                             self.win98_welcome(ui, context);
                         }

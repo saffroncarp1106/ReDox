@@ -627,6 +627,7 @@ pub enum ProviderEvent {
     Delegation(crate::delegation::Event),
     Metrics(crate::ollama::Stats),
     Thread(String),
+    Turn(String),
     Content(String),
     ReplaceContent {
         offset: usize,
@@ -751,7 +752,8 @@ pub async fn stream_chat_with_feedback(
         .ok_or("Codex did not return a thread ID.")?
         .to_owned();
     send(&sender, ProviderEvent::Thread(thread.clone())).await?;
-    rpc.request("turn/start", request.turn_params(&thread))
+    let turn_request = rpc
+        .request("turn/start", request.turn_params(&thread))
         .await?;
 
     let mut turn_id = None;
@@ -799,8 +801,13 @@ pub async fn stream_chat_with_feedback(
                 return Err(rpc_result(message).unwrap_err());
             }
 
-            if let Some(turn) = message["result"]["turn"]["id"].as_str() {
-                turn_id = Some(turn.to_owned());
+            if message["id"] == turn_request {
+                remember_turn(
+                    &mut turn_id,
+                    message["result"]["turn"]["id"].as_str(),
+                    &sender,
+                )
+                .await?;
             }
 
             continue;
@@ -940,7 +947,9 @@ pub async fn stream_chat_with_feedback(
                 answer.delta(item, text)?;
                 send(&sender, ProviderEvent::Content(text.into())).await?;
             }
-            "turn/started" => turn_id = params["turn"]["id"].as_str().map(str::to_owned),
+            "turn/started" => {
+                remember_turn(&mut turn_id, params["turn"]["id"].as_str(), &sender).await?
+            }
             "item/completed" => {
                 let item = &params["item"];
                 if let Some(content) = crate::media::generated_image(item) {
@@ -996,6 +1005,20 @@ pub async fn stream_chat_with_feedback(
             _ => {}
         }
     }
+}
+
+async fn remember_turn(
+    current: &mut Option<String>,
+    turn: Option<&str>,
+    sender: &mpsc::Sender<ProviderEvent>,
+) -> Result<(), String> {
+    if current.is_none()
+        && let Some(turn) = turn.filter(|id| !id.is_empty())
+    {
+        *current = Some(turn.to_owned());
+        send(sender, ProviderEvent::Turn(turn.to_owned())).await?;
+    }
+    Ok(())
 }
 
 async fn send(sender: &mpsc::Sender<ProviderEvent>, event: ProviderEvent) -> Result<(), String> {

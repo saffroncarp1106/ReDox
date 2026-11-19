@@ -205,7 +205,7 @@ impl Request {
             desktop: Default::default(),
             desktop_activity: Default::default(),
             messages,
-            checkpoint: state::checkpoint_path(chat.id),
+            checkpoint: state::checkpoint_path(chat.ollama_checkpoint.unwrap_or(chat.id)),
             worker: None,
         }
     }

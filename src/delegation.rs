@@ -28,6 +28,8 @@ pub enum Status {
 #[derive(Clone, Deserialize, Serialize)]
 pub struct Task {
     pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_message: Option<uuid::Uuid>,
     pub model: String,
     pub task: String,
     pub status: Status,
@@ -243,6 +245,7 @@ pub async fn execute(
         &sender,
         Event::Started(Task {
             id: id.clone(),
+            parent_message: None,
             model: model.clone(),
             task: task.into(),
             status: Status::Running,

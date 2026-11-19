@@ -152,14 +152,8 @@ impl ReDox {
                         ui.add_space(42.0);
                     });
                     self.gemini_centered_composer(ui, context);
-                } else if let Some(chat) = self.session.active() {
-                    super::conversation::render_transcript(
-                        ui,
-                        chat,
-                        ("gemini_chat", self.session.active_chat),
-                        48.0,
-                        self.ui_preferences.codex_mode,
-                    );
+                } else {
+                    self.chat_transcript(ui, ("gemini_chat", self.session.active_chat), 48.0);
                 }
             });
     }
@@ -258,10 +252,13 @@ impl ReDox {
                         }
                     }
                     {
-                        let ready = self.session.active().is_some_and(|chat| {
-                            !chat.archived
-                                && (!chat.draft.trim().is_empty() || !chat.attachments.is_empty())
-                        }) && self.runtime.is_some()
+                        let ready = !self.is_editing_message()
+                            && self.session.active().is_some_and(|chat| {
+                                !chat.archived
+                                    && (!chat.draft.trim().is_empty()
+                                        || !chat.attachments.is_empty())
+                            })
+                            && self.runtime.is_some()
                             && !self.picking_files;
                         if ready {
                             let response = icons::button_with_sense(

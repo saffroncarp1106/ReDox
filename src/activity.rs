@@ -17,6 +17,10 @@ impl TurnActivity {
         self.commands.is_empty() && self.files.is_empty() && !self.preview_limited
     }
 
+    pub fn is_unrecorded(&self) -> bool {
+        self.turn_id.is_empty() && self.is_empty()
+    }
+
     pub fn record_command(&mut self, command: CommandActivity) {
         if let Some(existing) = self.commands.iter_mut().find(|item| item.id == command.id) {
             existing.status = command.status;

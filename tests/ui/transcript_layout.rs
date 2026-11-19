@@ -47,7 +47,7 @@ fn switching_projects_and_sidebar_width_keeps_text_inside_the_transcript_column(
                         .clamp(260.0, 820.0)
                         .min(ui.available_width());
                     expected_left = ui.available_rect_before_wrap().center().x - width * 0.5;
-                    render_transcript(ui, &chat, ("test_project", project), 48.0, false);
+                    render_transcript(ui, &chat, ("test_project", project), 48.0, false, None);
                 });
             },
         );

@@ -7,6 +7,9 @@ use crate::app::ReDox;
 
 impl ReDox {
     pub(super) fn queue_send_control(&mut self, response: Response) -> bool {
+        if self.is_editing_message() {
+            return false;
+        }
         #[cfg(feature = "design-export")]
         super::design_export::record(
             &response.ctx,

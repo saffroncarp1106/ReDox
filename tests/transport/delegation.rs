@@ -4,6 +4,7 @@ use crate::run::{RunEvent, Update};
 
 fn task(id: &str) -> Task {
     Task {
+        parent_message: None,
         id: id.into(),
         model: "qwen-test".into(),
         task: "Read the project".into(),

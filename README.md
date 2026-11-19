@@ -163,6 +163,10 @@ Text and code use the bundled STIX Two Math font as a fallback for Unicode arrow
 
 Long conversations lay out the messages around the viewport. While a reply is streaming, scrolling away keeps your place. **Jump to latest** resumes following the reply.
 
+Use the pencil beside a sent prompt to edit it in place. **Cancel** keeps the conversation as it was. **Send** generates a new reply from that point. Use the arrows beside the edited prompt to switch versions and continue either conversation path. Existing attachments stay with the edit unless you remove them. Project files and completed tool actions stay on disk.
+
+Codex edits use a saved turn boundary when one is available. Older messages without a saved turn ID use the transcript loaded in ReDox, subject to the 128 KiB text limit.
+
 ## Verification
 
 ```powershell
