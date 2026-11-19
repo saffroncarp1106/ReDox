@@ -1,4 +1,4 @@
-use eframe::egui;
+use eframe::egui::{self, emath::GuiRounding};
 use redox_studio::native_appearance::{NativeAppearance, ThemeColor};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -224,6 +224,65 @@ pub(super) fn status_line(
         ui.painter().circle_filled(dot.center(), 3.5, color);
         ui.add(egui::Label::new(label).truncate());
     });
+}
+
+pub(super) fn checkbox(ui: &mut egui::Ui, checked: &mut bool, label: &str) -> egui::Response {
+    use egui::IntoAtoms as _;
+
+    let spacing = ui.spacing();
+    let height = spacing.interact_size.y.max(spacing.icon_width);
+    let icon_id = egui::Id::new("checkbox_icon");
+    let mut atoms = if label.is_empty() {
+        ().into_atoms()
+    } else {
+        label.into_atoms()
+    };
+    atoms.push_left(egui::Atom::custom(icon_id, egui::vec2(spacing.icon_width, height)));
+    let mut layout = egui::AtomLayout::new(atoms)
+        .sense(egui::Sense::click())
+        .min_size(egui::Vec2::splat(height))
+        .allocate(ui);
+    if layout.response.clicked() {
+        *checked = !*checked;
+        layout.response.mark_changed();
+    }
+    layout.response.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::Checkbox, ui.is_enabled(), *checked, label)
+    });
+    if !ui.is_rect_visible(layout.response.rect) {
+        return layout.response;
+    }
+
+    layout.fallback_text_color = ui.style().interact(&layout.response).text_color();
+    let painted = layout.paint(ui);
+    if let Some(slot) = painted.rect(icon_id) {
+        let (_, rect) = ui.spacing().icon_rectangles(slot);
+        let rect = rect.round_to_pixels(ui.pixels_per_point());
+        let painter = ui.painter();
+        if is_classic(ui) {
+            painter.rect_filled(rect, 0, ui.visuals().extreme_bg_color);
+            super::win98::bevel(painter, rect, true);
+        } else {
+            let active = painted.response.has_focus() || painted.response.hovered();
+            let color = if active { text() } else { muted().gamma_multiply(0.72) };
+            let fill = if *checked || active {
+                surface()
+            } else {
+                egui::Color32::TRANSPARENT
+            };
+            painter.rect(
+                rect,
+                3,
+                fill,
+                egui::Stroke::new(1.0, color),
+                egui::StrokeKind::Inside,
+            );
+        }
+        if *checked {
+            super::icons::paint(painter, rect, super::icons::Icon::Check, text());
+        }
+    }
+    painted.response
 }
 
 pub(super) fn slider(ui: &mut egui::Ui, slider: egui::Slider<'_>) -> egui::Response {

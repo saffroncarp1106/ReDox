@@ -37,6 +37,7 @@ pub enum Icon {
     Waveform,
     ClaudeMark,
     Stop,
+    Check,
     UsageMark,
 }
 
@@ -108,6 +109,7 @@ impl Icon {
             Self::Waveform => icon_svg!("waveform"),
             Self::ClaudeMark => icon_svg!("claude-mark"),
             Self::Stop => icon_svg!("stop"),
+            Self::Check => icon_svg!("check"),
             Self::UsageMark => icon_svg!("usage-mark"),
         }
     }

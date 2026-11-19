@@ -313,7 +313,7 @@ impl ReDox {
 
     pub(super) fn studio_skin_settings(&mut self, ui: &mut egui::Ui) {
         ui.label("Active Studio skin (.redoxskin)");
-        ui.checkbox(&mut self.ui_preferences.follow_studio, "Follow Studio live")
+        super::theme::checkbox(ui, &mut self.ui_preferences.follow_studio, "Follow Studio live")
             .on_hover_text(
                 "Show the design linked from Studio and refresh it as Studio saves changes.",
             );

@@ -579,12 +579,14 @@ impl ReDox {
         ui.add_space(20.0);
         settings_group(ui, "ReDox Remote control", |ui| {
             ui.add_enabled_ui(redox::desktop::SUPPORTED && self.running.is_none(), |ui| {
-                ui.checkbox(
+                theme::checkbox(
+                    ui,
                     &mut self.session.desktop.enabled,
                     "Allow the selected agent to see and control this desktop",
                 );
                 ui.add_enabled_ui(self.session.desktop.enabled, |ui| {
-                    ui.checkbox(
+                    theme::checkbox(
+                        ui,
                         &mut self.session.desktop.confirm_actions,
                         "Ask before mouse and keyboard input outside Full access",
                     );
@@ -639,8 +641,9 @@ impl ReDox {
         });
         if self.active_ui.config.layout == super::wii::ID {
             settings_group(ui, "Wii", |ui| {
-                ui.checkbox(&mut self.ui_preferences.wii.sounds, "Interface sounds");
-                ui.checkbox(
+                theme::checkbox(ui, &mut self.ui_preferences.wii.sounds, "Interface sounds");
+                theme::checkbox(
+                    ui,
                     &mut self.ui_preferences.wii.motion,
                     "Interface motion and cursor swarm",
                 );
@@ -723,13 +726,13 @@ impl ReDox {
                 context.set_zoom_factor(self.ui_preferences.zoom);
             }
             ui.add_space(16.0);
-            ui.checkbox(&mut self.sidebar_visible, "Show project and chat sidebar");
-            if ui
-                .checkbox(
-                    &mut self.ui_preferences.floating_windows,
-                    "Allow popup windows outside the app",
-                )
-                .changed()
+            theme::checkbox(ui, &mut self.sidebar_visible, "Show project and chat sidebar");
+            if theme::checkbox(
+                ui,
+                &mut self.ui_preferences.floating_windows,
+                "Allow popup windows outside the app",
+            )
+            .changed()
             {
                 context.request_repaint_of(egui::ViewportId::ROOT);
             }

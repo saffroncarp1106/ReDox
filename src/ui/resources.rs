@@ -9,7 +9,7 @@ impl ReDox {
         ui.separator();
 
         let settings = &mut self.resource_draft;
-        ui.checkbox(&mut settings.enabled, "Enable resource budgets");
+        super::theme::checkbox(ui, &mut settings.enabled, "Enable resource budgets");
         ui.add_enabled_ui(settings.enabled && cfg!(windows), |ui| {
             resource_bar(ui, "CPU", &mut settings.cpu_percent);
             resource_bar(ui, "RAM", &mut settings.ram_percent);

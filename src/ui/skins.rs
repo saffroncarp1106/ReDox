@@ -227,7 +227,8 @@ impl ReDox {
         ui.add(egui::TextEdit::singleline(&mut editor.config.heading).char_limit(300));
         ui.label("Message placeholder");
         ui.add(egui::TextEdit::singleline(&mut editor.config.placeholder).char_limit(200));
-        ui.checkbox(
+        super::theme::checkbox(
+            ui,
             &mut editor.config.sidebar_default,
             "Show sidebar by default",
         );

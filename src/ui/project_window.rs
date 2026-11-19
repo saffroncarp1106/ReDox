@@ -29,7 +29,7 @@ impl Default for Glow {
 
 impl Glow {
     pub fn settings(&mut self, ui: &mut egui::Ui) {
-        ui.checkbox(&mut self.enabled, "Show glow when hovering the border");
+        super::theme::checkbox(ui, &mut self.enabled, "Show glow when hovering the border");
         ui.horizontal(|ui| {
             ui.color_edit_button_srgb(&mut self.color);
             ui.label("Glow color");

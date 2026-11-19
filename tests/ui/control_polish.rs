@@ -1,5 +1,5 @@
 use super::*;
-use egui::{Event, Modifiers, PointerButton, Pos2, Shape};
+use egui::{Event, Key, Modifiers, PointerButton, Pos2, Shape};
 
 fn frame(
     context: &egui::Context,
@@ -21,6 +21,16 @@ fn has_text(output: &egui::FullOutput, label: &str) -> bool {
         .shapes
         .iter()
         .any(|shape| matches!(&shape.shape, Shape::Text(text) if text.galley.text() == label))
+}
+
+fn key(key: Key) -> Event {
+    Event::Key {
+        key,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: Modifiers::NONE,
+    }
 }
 
 fn button(pos: Pos2, pressed: bool) -> Event {
@@ -100,4 +110,38 @@ fn usage_meter_shows_remaining_quota_and_opens_details() {
     usage_frame(&ctx, &mut app, vec![button(pos, true)]);
     usage_frame(&ctx, &mut app, vec![button(pos, false)]);
     assert!(app.usage_open);
+}
+
+#[test]
+fn checkbox_uses_an_svg_and_preserves_label_click_and_keyboard_toggle() {
+    let ctx = egui::Context::default();
+    let _ = ReDox::design_preview(&ctx, "codex");
+    let mut checked = false;
+    let draw = |events, value: &mut bool| {
+        let mut response = None;
+        let output = frame(&ctx, events, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                response = Some(theme::checkbox(ui, value, "Toggle preference"));
+            });
+        });
+        (output, response.unwrap())
+    };
+
+    let (_, response) = draw(vec![], &mut checked);
+    let label = Pos2::new(response.rect.right() - 3.0, response.rect.center().y);
+    draw(
+        vec![Event::PointerMoved(label), button(label, true)],
+        &mut checked,
+    );
+    let (output, response) = draw(vec![button(label, false)], &mut checked);
+    assert!(checked && response.changed());
+    assert!(
+        output
+            .shapes
+            .iter()
+            .any(|shape| matches!(shape.shape, Shape::Mesh(_)))
+    );
+    response.request_focus();
+    let (_, response) = draw(vec![key(Key::Space)], &mut checked);
+    assert!(!checked && response.changed());
 }

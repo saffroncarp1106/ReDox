@@ -24,7 +24,8 @@ impl ReDox {
                         "ReDox {} is available. Download and restart now?",
                         self.updates.available.as_ref().unwrap().tag_name
                     ));
-                    ui.checkbox(
+                    super::theme::checkbox(
+                        ui,
                         &mut self.ui_preferences.hide_update_prompts,
                         "Never show again",
                     );
@@ -55,7 +56,8 @@ impl ReDox {
         ui.heading("Updates");
         ui.label(format!("Installed version: {}", env!("CARGO_PKG_VERSION")));
         ui.label("Check GitHub for the latest ReDox release.");
-        ui.checkbox(
+        super::theme::checkbox(
+            ui,
             &mut self.ui_preferences.hide_update_prompts,
             "Never show update prompts at startup",
         );

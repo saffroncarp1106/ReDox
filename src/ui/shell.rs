@@ -145,8 +145,8 @@ impl ReDox {
                         }
                     });
                     ui.menu_button(RichText::new("View").color(theme::menu_text()), |ui| {
-                        ui.checkbox(&mut self.sidebar_visible, "Sidebar");
-                        ui.checkbox(&mut self.show_archived, "Archived chats");
+                        theme::checkbox(ui, &mut self.sidebar_visible, "Sidebar");
+                        theme::checkbox(ui, &mut self.show_archived, "Archived chats");
                         if ui.button("Search chats").clicked() {
                             self.search_open = true;
                             self.sidebar_visible = true;
@@ -250,7 +250,7 @@ impl ReDox {
                         self.settings_open = true;
                         ui.close();
                     }
-                    ui.checkbox(&mut self.show_archived, "Archived chats");
+                    theme::checkbox(ui, &mut self.show_archived, "Archived chats");
                 });
                 if more.clicked() {
                     self.settings_open = true;

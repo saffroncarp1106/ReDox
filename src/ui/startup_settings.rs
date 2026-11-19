@@ -36,10 +36,10 @@ impl Startup {
         ui.label("Native Rust adaptation for ReDox.");
         ui.add_space(12.0);
         let config = &mut self.config;
-        ui.checkbox(&mut config.enabled, "Play on startup");
-        ui.checkbox(&mut config.show_names, "Show cursor names");
-        ui.checkbox(&mut config.show_trails, "Show cursor trails");
-        ui.checkbox(&mut config.show_guides, "Show drawing guides");
+        super::super::theme::checkbox(ui, &mut config.enabled, "Play on startup");
+        super::super::theme::checkbox(ui, &mut config.show_names, "Show cursor names");
+        super::super::theme::checkbox(ui, &mut config.show_trails, "Show cursor trails");
+        super::super::theme::checkbox(ui, &mut config.show_guides, "Show drawing guides");
         ui.horizontal(|ui| {
             ui.label("Duration");
             ui.add(
@@ -78,10 +78,9 @@ impl Startup {
                     ui.push_id(("cursor_name", index), |ui| {
                         ui.horizontal(|ui| {
                             let selected = &mut config.name_choices[index];
-                            ui.add_enabled(
-                                selected_count > 1 || !*selected,
-                                egui::Checkbox::without_text(selected),
-                            );
+                            ui.add_enabled_ui(selected_count > 1 || !*selected, |ui| {
+                                super::super::theme::checkbox(ui, selected, "");
+                            });
                             ui.add(
                                 egui::TextEdit::singleline(&mut config.names[index])
                                     .char_limit(24)

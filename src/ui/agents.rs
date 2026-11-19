@@ -217,7 +217,8 @@ impl ReDox {
         theme::card(ui, |ui| {
             ui.label(RichText::new("Delegation").font(theme::semibold(15.0)));
             ui.add_enabled_ui(idle, |ui| {
-                ui.checkbox(
+                theme::checkbox(
+                    ui,
                     &mut self.session.ollama.codex_delegation,
                     "Let Codex delegate to Ollama",
                 );
@@ -267,8 +268,8 @@ impl ReDox {
             }
             egui::CollapsingHeader::new("Model & tool options").show(ui, |ui| {
                 ui.add_enabled_ui(idle, |ui| {
-                    ui.checkbox(&mut self.session.ollama.cpu_only, "CPU only (GPU troubleshooting)");
-                    ui.checkbox(&mut self.session.ollama.project_tools, "Allow project tools")
+                    theme::checkbox(ui, &mut self.session.ollama.cpu_only, "CPU only (GPU troubleshooting)");
+                    theme::checkbox(ui, &mut self.session.ollama.project_tools, "Allow project tools")
                         .on_hover_text("Requires tool support. The chat’s access mode controls file edits and commands.");
                     egui::Grid::new("ollama_token_limits").show(ui, |ui| {
                         ui.label("Response limit");
