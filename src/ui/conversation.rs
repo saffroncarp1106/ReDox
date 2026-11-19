@@ -8,6 +8,7 @@ use eframe::egui::{
 use redox::domain::{Chat, Message, MessageStatus, Mode, Role};
 #[cfg(feature = "design-export")]
 use redox_studio::native_appearance::{NativeRegionId, ThemeColor};
+use std::time::Duration;
 
 pub(super) mod appearance;
 
@@ -676,12 +677,69 @@ fn render_message(
     }
     if message.status != MessageStatus::Streaming && !message.content.is_empty() {
         ui.add_space(10.0);
-        if icons::button(ui, Icon::Copy, "Copy response").clicked() {
-            ui.ctx().copy_text(message.content.clone());
-        }
+        copy_response_button(ui, &message.content);
     }
+}
+
+#[derive(Clone, Copy)]
+struct CopyFeedback {
+    button: egui::Id,
+    expires_at: f64,
+}
+
+fn copy_response_button(ui: &mut egui::Ui, content: &str) {
+    let button = ui.make_persistent_id("copy_response");
+    let feedback_id = egui::Id::new("copy_response_feedback");
+    let now = ui.input(|input| input.time);
+    let mut expires_at = ui.data(|data| {
+        data.get_temp::<CopyFeedback>(feedback_id)
+            .filter(|feedback| feedback.button == button)
+            .map(|feedback| feedback.expires_at)
+    });
+    let response = icons::button_with_icon(ui, Sense::click(), |response| {
+        if response.clicked() {
+            response.ctx.copy_text(content.to_owned());
+            let feedback = CopyFeedback {
+                button,
+                expires_at: now + 1.0,
+            };
+            response
+                .ctx
+                .data_mut(|data| data.insert_temp(feedback_id, feedback));
+            expires_at = Some(feedback.expires_at);
+        }
+        if expires_at.is_some_and(|until| now < until) {
+            Icon::Check
+        } else {
+            Icon::Copy
+        }
+    });
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), "Copy response")
+    });
+
+    if let Some(until) = expires_at {
+        if now < until {
+            ui.ctx().request_repaint_after(Duration::from_secs_f64(until - now));
+            if ui.is_rect_visible(response.rect) {
+                egui::Tooltip::for_widget(&response)
+                    .show(|ui| ui.label(RichText::new("Copied").small()));
+            }
+            return;
+        }
+        // Wait for a fresh hover before showing the regular tooltip again.
+        if response.hovered() {
+            return;
+        }
+        ui.data_mut(|data| data.remove::<CopyFeedback>(feedback_id));
+    }
+    response.on_hover_text("Copy response");
 }
 
 #[cfg(test)]
 #[path = "../../tests/ui/transcript_layout.rs"]
 mod layout_tests;
+
+#[cfg(all(test, feature = "design-export"))]
+#[path = "../../tests/ui/copy_response.rs"]
+mod copy_tests;

@@ -52,6 +52,14 @@ pub fn button(ui: &mut Ui, icon: Icon, tooltip: &str) -> Response {
 }
 
 pub(super) fn button_with_sense(ui: &mut Ui, icon: Icon, sense: Sense) -> Response {
+    button_with_icon(ui, sense, |_| icon)
+}
+
+pub(super) fn button_with_icon(
+    ui: &mut Ui,
+    sense: Sense,
+    icon: impl FnOnce(&Response) -> Icon,
+) -> Response {
     let (rect, response) = ui.allocate_exact_size(vec2(30.0, 30.0), sense);
     if super::theme::is_wii(ui.ctx()) {
         super::wii::paint_surface(ui, &response, false);
@@ -65,7 +73,7 @@ pub(super) fn button_with_sense(ui: &mut Ui, icon: Icon, sense: Sense) -> Respon
     } else {
         super::theme::muted()
     };
-    paint(ui.painter(), rect.shrink(7.0), icon, color);
+    paint(ui.painter(), rect.shrink(7.0), icon(&response), color);
     response
 }
 
