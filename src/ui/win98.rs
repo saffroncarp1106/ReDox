@@ -3,7 +3,10 @@ use eframe::egui::{
     pos2, vec2,
 };
 
-use super::{theme, window_frame};
+use super::{
+    icons::{icon_svg, paint_svg},
+    theme, window_frame,
+};
 use crate::app::ReDox;
 
 pub(super) const ID: &str = "win98";
@@ -53,58 +56,14 @@ impl Shortcut {
     }
 
     fn paint(self, ui: &Ui, origin: Pos2) {
-        let painter = ui.painter();
-        let block = |x, y, w, h, color| {
-            painter.rect_filled(
-                Rect::from_min_size(origin + vec2(x, y), vec2(w, h)),
-                0,
-                color,
-            );
+        let source = match self {
+            Self::Chats => icon_svg!("classic-chats"),
+            Self::Project => icon_svg!("classic-project"),
+            Self::Agents => icon_svg!("classic-agents"),
+            Self::Settings => icon_svg!("classic-settings"),
         };
-        let gray = Color32::from_gray(128);
-        match self {
-            Self::Chats => {
-                block(3.0, 1.0, 26.0, 20.0, BLACK);
-                block(4.0, 2.0, 23.0, 17.0, SILVER);
-                block(4.0, 2.0, 23.0, 2.0, WHITE);
-                block(7.0, 5.0, 17.0, 11.0, NAVY);
-                block(9.0, 7.0, 12.0, 2.0, Color32::LIGHT_BLUE);
-                block(11.0, 20.0, 10.0, 4.0, gray);
-                block(3.0, 24.0, 27.0, 6.0, BLACK);
-                block(2.0, 23.0, 26.0, 5.0, SILVER);
-                block(4.0, 24.0, 21.0, 1.0, WHITE);
-            }
-            Self::Project => {
-                block(2.0, 6.0, 28.0, 23.0, BLACK);
-                block(3.0, 7.0, 10.0, 5.0, Color32::from_rgb(255, 229, 138));
-                block(13.0, 6.0, 17.0, 17.0, WHITE);
-                block(4.0, 13.0, 27.0, 15.0, Color32::from_rgb(224, 173, 57));
-                block(4.0, 13.0, 27.0, 2.0, Color32::from_rgb(255, 237, 146));
-                block(6.0, 16.0, 22.0, 10.0, Color32::from_rgb(248, 210, 93));
-            }
-            Self::Agents => {
-                block(3.0, 8.0, 26.0, 19.0, BLACK);
-                block(5.0, 5.0, 22.0, 20.0, Color32::from_rgb(0, 99, 75));
-                for x in [8.0, 13.0, 18.0, 23.0] {
-                    block(x, 2.0, 2.0, 5.0, SILVER);
-                    block(x, 25.0, 2.0, 5.0, SILVER);
-                }
-                block(9.0, 9.0, 14.0, 12.0, WHITE);
-                block(10.0, 10.0, 12.0, 10.0, Color32::from_rgb(16, 48, 48));
-                block(12.0, 13.0, 3.0, 3.0, Color32::LIGHT_GREEN);
-                block(17.0, 13.0, 3.0, 3.0, Color32::LIGHT_GREEN);
-            }
-            Self::Settings => {
-                block(3.0, 3.0, 26.0, 26.0, BLACK);
-                block(4.0, 4.0, 23.0, 23.0, SILVER);
-                block(4.0, 4.0, 23.0, 2.0, WHITE);
-                for (y, x) in [(9.0, 11.0), (15.0, 19.0), (21.0, 14.0)] {
-                    block(7.0, y, 17.0, 2.0, gray);
-                    block(x, y - 2.0, 4.0, 6.0, NAVY);
-                    block(x, y - 2.0, 2.0, 5.0, Color32::LIGHT_BLUE);
-                }
-            }
-        }
+        let bounds = Rect::from_min_size(origin, vec2(32.0, 32.0));
+        paint_svg(ui.painter(), bounds, source, WHITE);
     }
 }
 
@@ -246,63 +205,19 @@ fn caption_control(
             Stroke::new(1.0, Color32::GRAY),
         );
     }
-    let origin = rect.min + Vec2::splat(if pressed { 1.0 } else { 0.0 });
-    let pixel = |x, y, w, h| {
-        painter.rect_filled(
-            Rect::from_min_size(origin + vec2(x, y), vec2(w, h)),
-            0,
-            BLACK,
-        );
+    let origin = rect.min + Vec2::splat(if pressed { 3.0 } else { 2.0 });
+    let bounds = Rect::from_min_size(origin, vec2(12.0, 10.0));
+    let source = match index {
+        0 => icon_svg!("classic-minimize"),
+        1 if maximized => icon_svg!("classic-restore"),
+        1 => icon_svg!("classic-maximize"),
+        _ => icon_svg!("classic-close"),
     };
-    let window = |x, y| {
-        pixel(x, y, 9.0, 2.0);
-        pixel(x, y + 2.0, 1.0, 6.0);
-        pixel(x + 8.0, y + 2.0, 1.0, 6.0);
-        pixel(x, y + 7.0, 9.0, 1.0);
-    };
-    match index {
-        0 => pixel(4.0, 10.0, 6.0, 2.0),
-        1 if maximized => {
-            window(5.0, 3.0);
-            painter.rect_filled(
-                Rect::from_min_size(origin + vec2(3.0, 5.0), vec2(9.0, 8.0)),
-                0,
-                SILVER,
-            );
-            window(3.0, 5.0);
-        }
-        1 => window(3.0, 3.0),
-        _ => {
-            for step in 0..7 {
-                pixel(4.0 + step as f32, 3.0 + step as f32, 2.0, 1.0);
-                pixel(10.0 - step as f32, 3.0 + step as f32, 2.0, 1.0);
-            }
-        }
-    }
+    paint_svg(painter, bounds, source, BLACK);
 }
 
 fn mark(painter: &egui::Painter, rect: Rect) {
-    let colors = [
-        Color32::from_rgb(238, 69, 38),
-        Color32::from_rgb(92, 163, 34),
-        Color32::from_rgb(37, 123, 211),
-        Color32::from_rgb(255, 199, 45),
-    ];
-    let tile = rect.size() / 2.0;
-    let offset = tile.x * 0.23;
-    for (index, color) in colors.into_iter().enumerate() {
-        let origin = rect.min + vec2((index % 2) as f32 * tile.x, (index / 2) as f32 * tile.y);
-        painter.add(egui::Shape::convex_polygon(
-            vec![
-                origin + vec2(offset, 0.0),
-                origin + vec2(tile.x, 0.0),
-                origin + vec2(tile.x - offset, tile.y - 1.0),
-                origin + vec2(0.0, tile.y - 1.0),
-            ],
-            color,
-            Stroke::new(0.75, BLACK),
-        ));
-    }
+    paint_svg(painter, rect, icon_svg!("classic-mark"), WHITE);
 }
 
 fn gradient(painter: &egui::Painter, rect: Rect, colors: [Color32; 4]) {

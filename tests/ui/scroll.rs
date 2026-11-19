@@ -1,4 +1,5 @@
 use super::*;
+use egui::vec2;
 
 #[test]
 fn classic_thumb_stays_between_the_arrow_buttons_on_both_axes() {

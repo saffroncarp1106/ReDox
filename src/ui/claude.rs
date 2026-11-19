@@ -385,22 +385,7 @@ impl ReDox {
             let (rect, response) =
                 ui.allocate_exact_size(vec2(26.0, 24.0), Sense::click_and_drag());
             let color = if ready { theme::text() } else { theme::muted() };
-            let center = rect.center();
-            for line in [
-                vec![
-                    center + vec2(6.0, -6.0),
-                    center + vec2(6.0, 1.0),
-                    center + vec2(-6.0, 1.0),
-                ],
-                vec![
-                    center + vec2(-2.0, -3.0),
-                    center + vec2(-6.0, 1.0),
-                    center + vec2(-2.0, 5.0),
-                ],
-            ] {
-                ui.painter()
-                    .add(egui::Shape::line(line, Stroke::new(1.5, color)));
-            }
+            icons::paint(ui.painter(), rect.shrink(3.0), Icon::Return, color);
             #[cfg(feature = "design-export")]
             super::design_export::record(
                 ui.ctx(),
@@ -418,16 +403,12 @@ impl ReDox {
                 icons::button(ui, Icon::Mic, "Voice input is not available yet");
             }
             let (rect, response) = ui.allocate_exact_size(vec2(24.0, 26.0), Sense::hover());
-            for (index, height) in [4.0, 10.0, 16.0, 8.0, 4.0].into_iter().enumerate() {
-                let x = rect.center().x - 8.0 + index as f32 * 4.0;
-                ui.painter().line_segment(
-                    [
-                        pos2(x, rect.center().y - height * 0.5),
-                        pos2(x, rect.center().y + height * 0.5),
-                    ],
-                    Stroke::new(1.2, theme::muted()),
-                );
-            }
+            icons::paint(
+                ui.painter(),
+                rect.shrink(2.0),
+                Icon::Waveform,
+                theme::muted(),
+            );
             response.on_disabled_hover_text("Voice mode is not available yet");
         });
     }
@@ -466,17 +447,12 @@ fn claude_heading(ui: &mut egui::Ui, heading: &str) {
     let size = vec2(galley.size().x + 46.0, 44.0);
     let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
     let center = pos2(rect.left() + 17.0, rect.center().y);
-    for ray in 0..12 {
-        let angle = ray as f32 * std::f32::consts::TAU / 12.0;
-        let direction = vec2(angle.cos(), angle.sin());
-        ui.painter().line_segment(
-            [
-                center + direction * 5.0,
-                center + direction * if ray % 2 == 0 { 16.0 } else { 13.0 },
-            ],
-            Stroke::new(2.0, theme::blue()),
-        );
-    }
+    icons::paint(
+        ui.painter(),
+        egui::Rect::from_center_size(center, vec2(34.0, 34.0)),
+        Icon::ClaudeMark,
+        theme::blue(),
+    );
     ui.painter().galley(
         pos2(rect.left() + 44.0, rect.center().y - galley.size().y * 0.5),
         galley,

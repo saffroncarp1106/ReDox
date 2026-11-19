@@ -488,20 +488,12 @@ impl ReDox {
                                     Color32::from_gray(85)
                                 };
                                 ui.painter().circle_filled(rect.center(), 14.0, fill);
-                                if running && !can_send {
-                                    ui.painter().rect_filled(
-                                        egui::Rect::from_center_size(rect.center(), vec2(9.0, 9.0)),
-                                        1,
-                                        text(),
-                                    );
+                                let (icon, inset) = if running && !can_send {
+                                    (Icon::Stop, 8.0)
                                 } else {
-                                    icons::paint(
-                                        ui.painter(),
-                                        rect.shrink(6.0),
-                                        Icon::ArrowUp,
-                                        text(),
-                                    );
-                                }
+                                    (Icon::ArrowUp, 6.0)
+                                };
+                                icons::paint(ui.painter(), rect.shrink(inset), icon, text());
                                 if can_send {
                                     send |= self.queue_send_control(response);
                                 } else if running {

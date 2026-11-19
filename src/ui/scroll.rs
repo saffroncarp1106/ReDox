@@ -1,4 +1,6 @@
-use eframe::egui::{self, Color32, Id, Rect, Sense, Stroke, Ui, Vec2, pos2, vec2};
+use eframe::egui::{self, Color32, Id, Rect, Sense, Stroke, Ui, Vec2, pos2};
+
+use super::icons::{icon_svg, paint_svg};
 
 const WIDTH: f32 = 17.0;
 const SILVER: Color32 = Color32::from_gray(192);
@@ -254,25 +256,15 @@ fn paint_button(ui: &Ui, rect: Rect, pressed: bool) {
 
 fn paint_arrow(ui: &Ui, rect: Rect, axis: usize, direction: f32, pressed: bool, enabled: bool) {
     let center = rect.center() + Vec2::splat(if pressed { 1.0 } else { 0.0 });
-    for row in 0..4 {
-        let mut point = center;
-        point[axis] += direction * (1.5 - row as f32);
-        point[1 - axis] -= row as f32;
-        let size = if axis == 1 {
-            vec2((row * 2 + 1) as f32, 1.0)
-        } else {
-            vec2(1.0, (row * 2 + 1) as f32)
-        };
-        ui.painter().rect_filled(
-            Rect::from_min_size(point, size),
-            0,
-            if enabled {
-                Color32::BLACK
-            } else {
-                Color32::GRAY
-            },
-        );
-    }
+    let source = match (axis, direction > 0.0) {
+        (0, false) => icon_svg!("classic-arrow-left"),
+        (0, true) => icon_svg!("classic-arrow-right"),
+        (_, false) => icon_svg!("classic-arrow-up"),
+        (_, true) => icon_svg!("classic-arrow-down"),
+    };
+    let tint = if enabled { Color32::BLACK } else { Color32::GRAY };
+    let bounds = Rect::from_center_size(center, Vec2::splat(7.0_f32.min(rect.size().min_elem())));
+    paint_svg(ui.painter(), bounds, source, tint);
 }
 
 #[cfg(test)]

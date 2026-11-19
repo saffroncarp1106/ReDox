@@ -1,6 +1,10 @@
 use eframe::egui::{self, Align2, Color32, Frame, Margin, Sense, Stroke, vec2};
 
-use super::{Preferences, theme, win98};
+use super::{
+    Preferences,
+    icons::{icon_svg, paint_svg},
+    theme, win98,
+};
 use crate::app::ReDox;
 
 #[derive(Default)]
@@ -147,20 +151,7 @@ fn unlock_notice(context: &egui::Context) -> bool {
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
                         let (rect, _) = ui.allocate_exact_size(vec2(36.0, 36.0), Sense::hover());
-                        let center = rect.center();
-                        let painter = ui.painter();
-                        painter.circle_filled(
-                            center + vec2(1.0, 1.0),
-                            17.0,
-                            Color32::from_rgb(107, 23, 20),
-                        );
-                        painter.circle_filled(center, 16.0, Color32::from_rgb(192, 38, 30));
-                        for direction in [vec2(7.0, 7.0), vec2(7.0, -7.0)] {
-                            painter.line_segment(
-                                [center - direction, center + direction],
-                                Stroke::new(4.0, Color32::WHITE),
-                            );
-                        }
+                        paint_svg(ui.painter(), rect, icon_svg!("classic-error"), Color32::WHITE);
                         ui.add_space(6.0);
                         ui.add(egui::Label::new(
                             "Windows 98 unlocked. Choose it from the UI menu whenever you want.",
