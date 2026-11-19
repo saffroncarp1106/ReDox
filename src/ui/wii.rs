@@ -1,6 +1,8 @@
+use std::sync::LazyLock;
+
 use eframe::egui::{
     self, Align, Align2, Color32, FontId, Frame, Layout, Margin, Rect, Response, Sense, Stroke, Ui,
-    vec2,
+    pos2, vec2,
 };
 
 use super::{
@@ -14,6 +16,7 @@ pub(super) const BLUE: Color32 = Color32::from_rgb(52, 190, 237);
 const SETTINGS_KEY: &str = "wii_settings";
 const QUIET_KEY: &str = "wii_quiet";
 const FEEDBACK_KEY: &str = "wii_feedback";
+const CHANNEL_SIZE: egui::Vec2 = vec2(392.0, 217.0);
 const SILVER: Color32 = Color32::from_rgb(227, 232, 239);
 const PLAYERS: [Color32; 4] = [
     Color32::from_rgb(0, 140, 255),
@@ -625,7 +628,7 @@ fn home_channels(ui: &mut Ui, heading: &str) -> Option<Shortcut> {
     let top = ((available.y - 400.0) * 0.3).clamp(0.0, 110.0);
     let tile_height = ((available.y - top - 78.0) / rows as f32 - 14.0).max(90.0);
     let tile_width = ((available.x - 12.0 * (columns - 1) as f32) / columns as f32)
-        .min(tile_height * 392.0 / 217.0)
+        .min(tile_height * CHANNEL_SIZE.x / CHANNEL_SIZE.y)
         .min(244.0);
     let width = tile_width * columns as f32 + 12.0 * (columns - 1) as f32;
     let mut selected = None;
@@ -657,7 +660,7 @@ fn home_channels(ui: &mut Ui, heading: &str) -> Option<Shortcut> {
 }
 
 fn channel(ui: &mut Ui, label: &str, icon: Icon, width: f32) -> Response {
-    let height = width * 217.0 / 392.0;
+    let height = width * CHANNEL_SIZE.y / CHANNEL_SIZE.x;
     let (rect, response) = ui.allocate_exact_size(vec2(width, height), Sense::click());
     response.widget_info(|| {
         egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label)
@@ -669,17 +672,7 @@ fn channel(ui: &mut Ui, label: &str, icon: Icon, width: f32) -> Response {
         if motion { 0.16 } else { 0.0 },
     );
     let bounds = rect.shrink(2.0).translate(vec2(0.0, -2.0 * hover));
-    egui::Image::new(egui::include_image!("assets/wii/channel.svg")).paint_at(ui, bounds);
-    ui.painter()
-        .rect_filled(bounds.shrink(4.0), 18, Color32::from_rgb(249, 251, 252));
-    if hover > 0.0 {
-        ui.painter().rect_stroke(
-            bounds.shrink(1.0),
-            19,
-            Stroke::new(2.0, BLUE.gamma_multiply(hover)),
-            egui::StrokeKind::Inside,
-        );
-    }
+    ui.painter().add(channel_frame(bounds, hover));
     icons::paint(
         ui.painter(),
         Rect::from_center_size(bounds.center() - vec2(0.0, 14.0), vec2(34.0, 34.0)),
@@ -694,6 +687,73 @@ fn channel(ui: &mut Ui, label: &str, icon: Icon, width: f32) -> Response {
         theme::text(),
     );
     response.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+fn channel_frame(bounds: Rect, hover: f32) -> egui::Shape {
+    static OUTLINE: LazyLock<Vec<egui::Pos2>> = LazyLock::new(|| {
+        use egui::epaint::CubicBezierShape;
+
+        // Trace channel.svg from the top center to the right center.
+        let mut quadrant = vec![pos2(196.0, 6.0)];
+        for [control_a, control_b, end] in [
+            [pos2(265.88, 6.0), pos2(323.0, 6.0), pos2(362.12, 8.35)],
+            [
+                pos2(367.11, 8.66736),
+                pos2(371.83, 10.7295),
+                pos2(375.453, 14.1755),
+            ],
+            [
+                pos2(379.077, 17.6215),
+                pos2(381.373, 22.2319),
+                pos2(381.94, 27.2),
+            ],
+            [pos2(384.53, 48.13), pos2(386.0, 82.2), pos2(386.0, 108.5)],
+        ] {
+            let start = *quadrant.last().unwrap();
+            let curve = CubicBezierShape::from_points_stroke(
+                [start, control_a, control_b, end],
+                false,
+                Color32::TRANSPARENT,
+                Stroke::NONE,
+            );
+            curve.for_each_flattened_with_t(0.12, &mut |point, _| quadrant.push(point));
+        }
+
+        let mut points = Vec::with_capacity(4 * (quadrant.len() - 1));
+        points.extend(quadrant.iter().copied());
+        points.extend(
+            quadrant
+                .iter()
+                .rev()
+                .skip(1)
+                .map(|p| pos2(p.x, CHANNEL_SIZE.y - p.y)),
+        );
+        points.extend(
+            quadrant
+                .iter()
+                .skip(1)
+                .map(|p| pos2(CHANNEL_SIZE.x - p.x, CHANNEL_SIZE.y - p.y)),
+        );
+        points.extend(
+            quadrant[1..quadrant.len() - 1]
+                .iter()
+                .rev()
+                .map(|p| pos2(CHANNEL_SIZE.x - p.x, p.y)),
+        );
+        points
+    });
+    let transform = egui::emath::RectTransform::from_to(
+        Rect::from_min_size(egui::Pos2::ZERO, CHANNEL_SIZE),
+        bounds,
+    );
+    let points = OUTLINE.iter().map(|point| transform * *point).collect();
+    let width = (bounds.width() * 5.0 / CHANNEL_SIZE.x).clamp(1.0, 3.0);
+    let edge = Color32::from_gray(180).lerp_to_gamma(BLUE, hover);
+    egui::Shape::convex_polygon(
+        points,
+        Color32::from_rgb(249, 251, 252),
+        Stroke::new(width, edge),
+    )
 }
 
 #[cfg(test)]

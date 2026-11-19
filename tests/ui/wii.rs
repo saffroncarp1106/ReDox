@@ -145,3 +145,68 @@ fn channels_fit_the_minimum_main_area_and_scroll_in_narrow_project_windows() {
         );
     }
 }
+
+#[test]
+fn channel_hover_reuses_the_filled_contour_at_each_scale() {
+    for (width, scale) in [(244.0, 1.0), (244.0, 2.0), (158.0, 1.5)] {
+        let context = egui::Context::default();
+        theme::apply(&context, ID);
+        context.data_mut(|data| {
+            data.insert_temp(
+                egui::Id::new(SETTINGS_KEY),
+                Settings {
+                    sounds: false,
+                    motion: false,
+                },
+            );
+        });
+
+        let draw = |events| {
+            let mut input = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(300.0, 180.0))),
+                events,
+                ..Default::default()
+            };
+            input
+                .viewports
+                .get_mut(&egui::ViewportId::ROOT)
+                .unwrap()
+                .native_pixels_per_point = Some(scale);
+            let output = context.run(input, |context| {
+                egui::CentralPanel::default()
+                    .frame(Frame::NONE)
+                    .show(context, |ui| {
+                        channel(ui, "Open project", Icon::Folder, width);
+                    });
+            });
+            assert_eq!(output.pixels_per_point, scale);
+            let frames: Vec<_> = output
+                .shapes
+                .into_iter()
+                .filter_map(|shape| match shape.shape {
+                    egui::Shape::Path(path) if path.fill == Color32::from_rgb(249, 251, 252) => {
+                        Some(path)
+                    }
+                    _ => None,
+                })
+                .collect();
+            let [frame]: [_; 1] = frames
+                .try_into()
+                .expect("one path for both the fill and the border");
+            frame
+        };
+
+        let idle = draw(Vec::new());
+        let hovered = draw(vec![egui::Event::PointerMoved(pos2(width * 0.5, 35.0))]);
+        assert!(idle.closed && hovered.closed);
+        assert_eq!(
+            idle.stroke,
+            Stroke::new(idle.stroke.width, Color32::from_gray(180)).into()
+        );
+        assert_eq!(hovered.stroke, Stroke::new(idle.stroke.width, BLUE).into());
+        assert_eq!(idle.points.len(), hovered.points.len());
+        for (idle, hovered) in idle.points.iter().zip(&hovered.points) {
+            assert!(((*idle - vec2(0.0, 2.0)) - *hovered).length() < 0.01);
+        }
+    }
+}
