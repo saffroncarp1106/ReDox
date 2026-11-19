@@ -1,5 +1,6 @@
 use eframe::egui::{self, Align, Color32, Frame, Layout, RichText, vec2};
 use redox::delegation::Status;
+use redox::ollama::MAX_RESPONSE_TOKENS;
 
 use super::{icons, theme};
 use crate::app::ReDox;
@@ -137,11 +138,11 @@ impl ReDox {
                         }
                     });
             });
-            if let Some(model) = self
+            let selected_model = self
                 .ollama_models
                 .iter()
-                .find(|model| model.name == self.session.ollama.preferred_model)
-            {
+                .find(|model| model.name == self.session.ollama.preferred_model);
+            if let Some(model) = selected_model {
                 let details = [
                     &model.details.parameter_size,
                     &model.details.quantization_level,
@@ -161,6 +162,26 @@ impl ReDox {
                         .color(theme::muted()),
                 );
             }
+            let model_limit = selected_model.and_then(|model| model.details.context_length);
+            let range = redox::ollama::context_range(model_limit);
+            let settings = &mut self.session.ollama;
+            let mut tokens = settings.context_for(model_limit);
+            let label = ui.label("Context window (tokens)");
+            ui.add_enabled_ui(idle, |ui| {
+                ui.spacing_mut().slider_width = (ui.available_width() - 78.0).max(60.0);
+                let max = *range.end();
+                let slider = egui::Slider::new(&mut tokens, range).logarithmic(true);
+                if ui
+                    .add(slider)
+                    .labelled_by(label.id)
+                    .on_hover_text(format!(
+                        "Drag or enter a token count up to {max}. Larger windows use more memory."
+                    ))
+                    .changed()
+                {
+                    settings.context_tokens = tokens;
+                }
+            });
             ui.horizontal_wrapped(|ui| {
                 ui.add_enabled_ui(
                     idle && connected && !self.session.ollama.preferred_model.is_empty(),
@@ -250,11 +271,12 @@ impl ReDox {
                     ui.checkbox(&mut self.session.ollama.project_tools, "Allow project tools")
                         .on_hover_text("Requires tool support. The chat’s access mode controls file edits and commands.");
                     egui::Grid::new("ollama_token_limits").show(ui, |ui| {
-                        ui.label("Context tokens");
-                        ui.add(egui::DragValue::new(&mut self.session.ollama.context_tokens).range(2048..=32768).speed(256));
-                        ui.end_row();
                         ui.label("Response limit");
-                        ui.add(egui::DragValue::new(&mut self.session.ollama.output_tokens).range(8..=8192).speed(64));
+                        ui.add(
+                            egui::DragValue::new(&mut self.session.ollama.output_tokens)
+                                .range(8..=MAX_RESPONSE_TOKENS)
+                                .speed(64),
+                        );
                         ui.end_row();
                     });
                     ui.label("Agent instructions (optional)");
@@ -317,10 +339,11 @@ impl ReDox {
             for task in chat.delegated_tasks.iter().rev().take(5) {
                 let status = match task.status {
                     Status::Running => "Running",
-                    Status::Complete => "Complete",
+                    Status::Complete => "Ready for review",
                     Status::Failed => "Failed",
                     Status::Cancelled => "Cancelled",
                     Status::Interrupted => "Interrupted",
+                    Status::Checkpoint => "Needs follow-up",
                 };
                 let title: String = task
                     .task

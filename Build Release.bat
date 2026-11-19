@@ -12,6 +12,8 @@ echo Building the optimized release version of ReDox.
 echo The first release build may take several minutes.
 "%REDOX_CARGO%" build --release --locked --bin redox --target-dir "%~dp0target"
 if errorlevel 1 goto failed
+"%REDOX_CARGO%" build --release --locked --features design-export --bin redox-studio-native-preview --target-dir "%~dp0target"
+if errorlevel 1 goto failed
 if not exist "%~dp0target\release\redox.exe" goto failed
 echo.
 echo Release ready: "%~dp0target\release\redox.exe"

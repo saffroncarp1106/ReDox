@@ -1,9 +1,29 @@
 use base64::Engine;
 use eframe::egui::{self, Pos2, Rect, Vec2, epaint::Primitive};
 use redox_studio::document::{ArtMesh, ArtVertex, Artwork, Document, Kind, Node, TextureAsset};
+use redox_studio::native_appearance::{NativeAppearance, NativeDesign, NativeRegion, NativeRegionId, ThemeColor};
+use std::cell::Cell;
 use std::collections::HashMap;
 #[path = "../../tests/ui/design_raster.rs"]
 mod raster;
+
+thread_local! {
+    static RECORDING: Cell<bool> = const { Cell::new(false) };
+}
+
+struct Recording(bool);
+
+impl Recording {
+    fn start() -> Self {
+        Self(RECORDING.replace(true))
+    }
+}
+
+impl Drop for Recording {
+    fn drop(&mut self) {
+        RECORDING.set(self.0);
+    }
+}
 
 pub fn export(destination: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(destination)?;
@@ -16,288 +36,15 @@ pub fn export(destination: &std::path::Path) -> Result<(), Box<dyn std::error::E
                 continue;
             }
             let scene_key = format!("{}-{}", id, scene.id());
-            let context = egui::Context::default();
-            let mut app = crate::app::ReDox::design_preview(&context, id);
-            app.prepare_design_scene(scene);
-            let mut textures = HashMap::new();
-            let mut shapes = vec![];
-            for frame_number in 0..6 {
-                let output = context.run(
-                    egui::RawInput {
-                        screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1100., 900.))),
-                        ..Default::default()
-                    },
-                    |context| app.render_design(context),
-                );
-                raster::update(&mut textures, &output.textures_delta);
-                if frame_number == 5 && std::env::var_os("REDOX_EXPORT_REVIEW").is_some() {
-                    let review = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                        .join("target/design-review");
-                    std::fs::create_dir_all(&review)?;
-                    raster::write(
-                        &context,
-                        output.clone(),
-                        &textures,
-                        &review.join(format!("{scene_key}.png")),
-                    );
-                }
-                shapes = output.shapes;
-            }
-            let mut doc = Document::blank();
-            doc.name = format!("ReDox {} {}", id, scene.label());
-            doc.source = Some(redox_studio::scenes::Source {
-                theme: id.into(),
-                scene,
-            });
-            doc.pages[0].name = scene.label().into();
-            doc.author = "ReDox source".into();
-            let mut frame = Node::new(1, Kind::Frame, 0., 0.);
-            frame.name = format!("{} original 1100x900", id);
-            frame.width = 1100.;
-            frame.height = 900.;
-            frame.fill = [24, 24, 24, 255];
-            doc.pages[0].nodes.push(frame);
-            let mut texture_ids = HashMap::new();
-            for (id, image) in textures {
-                let pixels: Vec<u8> = image
-                    .pixels
-                    .iter()
-                    .flat_map(|p| p.to_srgba_unmultiplied())
-                    .collect();
-                let image =
-                    image::RgbaImage::from_raw(image.width() as u32, image.height() as u32, pixels)
-                        .ok_or("Invalid image")?;
-                let mut png = std::io::Cursor::new(vec![]);
-                image.write_to(&mut png, image::ImageFormat::Png)?;
-                texture_ids.insert(id, doc.textures.len());
-                doc.textures.push(TextureAsset {
-                    png_base64: base64::engine::general_purpose::STANDARD.encode(png.into_inner()),
-                });
-            }
-            let mut flattened = vec![];
-            fn flatten(clip: Rect, shape: egui::Shape, out: &mut Vec<egui::epaint::ClippedShape>) {
-                if let egui::Shape::Vec(shapes) = shape {
-                    for shape in shapes {
-                        flatten(clip, shape, out);
-                    }
-                } else {
-                    out.push(egui::epaint::ClippedShape {
-                        clip_rect: clip,
-                        shape,
-                    });
-                }
-            }
-            for shape in shapes {
-                flatten(shape.clip_rect, shape.shape, &mut flattened);
-            }
-            for shape in flattened {
-                let text =
-                    if let egui::Shape::Text(text) = &shape.shape {
-                        Some((
-                            text.galley.job.text.clone(),
-                            text.galley
-                                .job
-                                .sections
-                                .first()
-                                .map(|s| s.format.font_id.size)
-                                .unwrap_or(14.),
-                            text.override_text_color
-                                .or_else(|| {
-                                    text.galley
-                                        .job
-                                        .sections
-                                        .first()
-                                        .map(|section| section.format.color)
-                                        .filter(|color| *color != egui::Color32::PLACEHOLDER)
-                                })
-                                .unwrap_or(text.fallback_color)
-                                .to_srgba_unmultiplied(),
-                            if text.galley.job.sections.first().is_some_and(|s| {
-                                s.format.font_id.family == egui::FontFamily::Monospace
-                            }) {
-                                redox_studio::document::Font::Mono
-                            } else {
-                                redox_studio::document::Font::Sans
-                            },
-                        ))
-                    } else {
-                        None
-                    };
-                let clip = shape
-                    .clip_rect
-                    .intersect(Rect::from_min_size(Pos2::ZERO, Vec2::new(1100., 900.)));
-                let primitives = context.tessellate(vec![shape.clone()], 1.);
-                let mut meshes = vec![];
-                let mut bounds = Rect::NOTHING;
-                for primitive in primitives {
-                    if let Primitive::Mesh(mesh) = primitive.primitive {
-                        if mesh.vertices.is_empty() {
-                            continue;
-                        }
-                        for vertex in &mesh.vertices {
-                            bounds.extend_with(vertex.pos);
-                        }
-                        meshes.push(mesh);
-                    }
-                }
-                if meshes.is_empty() || !bounds.intersects(clip) {
-                    continue;
-                }
-                let mut node = Node::new(
-                    doc.next_id(),
-                    if text.is_some() {
-                        Kind::Text
-                    } else {
-                        Kind::Artwork
-                    },
-                    bounds.min.x,
-                    bounds.min.y,
-                );
-                node.parent = Some(1);
-                node.width = bounds.width().max(1.);
-                node.height = bounds.height().max(1.);
-                let (label, size, color, font) =
-                    text.unwrap_or((String::new(), 14., [255; 4], Default::default()));
-                node.name = if label.is_empty() {
-                    format!("Artwork {}", node.id)
-                } else {
-                    label.chars().filter(|c| !c.is_control()).take(30).collect()
-                };
-                if node.name.trim().is_empty() {
-                    node.name = format!("Text {}", node.id);
-                }
-                node.ui_script = redox_studio::actions::UiAction::from_label(&label)
-                    .into_iter()
-                    .collect();
-                node.font = font;
-                node.text = label.clone();
-                node.font_size = size.clamp(8., 160.);
-                node.text_color = color;
-                node.artwork = Some(Artwork {
-                    text_layout: if let egui::Shape::Text(text) = &shape.shape {
-                        let wrap = &text.galley.job.wrap;
-                        Some(redox_studio::document::SourceTextLayout {
-                            width: wrap
-                                .max_width
-                                .is_finite()
-                                .then(|| wrap.max_width.clamp(1., 16000.)),
-                            max_rows: wrap.max_rows.clamp(1, 64),
-                            break_anywhere: wrap.break_anywhere,
-                            overflow_character: wrap.overflow_character,
-                            align: match text.galley.job.halign {
-                                egui::Align::Min => redox_studio::document::TextAlign::Left,
-                                egui::Align::Center => redox_studio::document::TextAlign::Center,
-                                egui::Align::Max => redox_studio::document::TextAlign::Right,
-                            },
-                        })
-                    } else {
-                        None
-                    },
-                    font_face: if let egui::Shape::Text(text) = &shape.shape {
-                        let family = text
-                            .galley
-                            .job
-                            .sections
-                            .first()
-                            .map(|s| &s.format.font_id.family);
-                        match family {
-                            Some(egui::FontFamily::Monospace) => None,
-                            Some(egui::FontFamily::Name(name)) if name.as_ref() == "serif" => {
-                                Some("redox.serif".into())
-                            }
-                            Some(egui::FontFamily::Name(name)) if name.as_ref() == "semibold" => {
-                                Some(
-                                    if id == "win98" {
-                                        "redox.tahoma.bold"
-                                    } else {
-                                        "redox.segoe.bold"
-                                    }
-                                    .into(),
-                                )
-                            }
-                            _ => Some(
-                                if id == "win98" {
-                                    "redox.tahoma"
-                                } else {
-                                    "redox.segoe"
-                                }
-                                .into(),
-                            ),
-                        }
-                    } else {
-                        None
-                    },
-                    text_origin: if let egui::Shape::Text(text) = &shape.shape {
-                        [text.pos.x - bounds.min.x, text.pos.y - bounds.min.y]
-                    } else {
-                        [0.; 2]
-                    },
-                    original_font: node.font,
-                    original_text_align: node.text_align,
-                    vector_icon: None,
-                    size: [node.width, node.height],
-                    original_text: label,
-                    original_font_size: node.font_size,
-                    original_color: color,
-                    clip: [
-                        clip.min.x - bounds.min.x,
-                        clip.min.y - bounds.min.y,
-                        clip.width(),
-                        clip.height(),
-                    ],
-                    meshes: meshes
-                        .into_iter()
-                        .map(|mesh| ArtMesh {
-                            texture: texture_ids[&mesh.texture_id],
-                            indices: mesh.indices,
-                            vertices: mesh
-                                .vertices
-                                .into_iter()
-                                .map(|v| ArtVertex {
-                                    position: [v.pos.x - bounds.min.x, v.pos.y - bounds.min.y],
-                                    uv: [v.uv.x.clamp(0., 1.), v.uv.y.clamp(0., 1.)],
-                                    color: v.color.to_srgba_unmultiplied(),
-                                })
-                                .collect(),
-                        })
-                        .collect(),
-                });
-                doc.pages[0].nodes.push(node);
-            }
-            for (rect, action) in recorded(&context) {
-                let mut node = Node::new(doc.next_id(), Kind::Button, rect.min.x, rect.min.y);
-                node.parent = Some(1);
-                node.name = format!("Control {}", action.id());
-                node.width = rect.width().max(1.);
-                node.height = rect.height().max(1.);
-                node.fill = [0; 4];
-                node.stroke_width = 0.;
-                node.text.clear();
-                node.ui_script = vec![action];
-                doc.pages[0].nodes.push(node);
-            }
-            compact_textures(&mut doc)?;
-            for node in &doc.pages[0].nodes {
-                if let Some(art) = &node.artwork {
-                    for vertex in art.meshes.iter().flat_map(|m| &m.vertices) {
-                        if vertex
-                            .position
-                            .iter()
-                            .any(|v| !v.is_finite() || v.abs() > 32000.)
-                            || vertex
-                                .uv
-                                .iter()
-                                .any(|v| !v.is_finite() || !(0.0..=1.0).contains(v))
-                        {
-                            return Err(format!(
-                                "Invalid vertex in {} {}: {:?}",
-                                scene_key, node.name, vertex
-                            )
-                            .into());
-                        }
-                    }
-                }
-            }
+            let reference = if std::env::var_os("REDOX_EXPORT_REVIEW").is_some() {
+                let review =
+                    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target/design-review");
+                std::fs::create_dir_all(&review)?;
+                Some(review.join(format!("{scene_key}.png")))
+            } else {
+                None
+            };
+            let doc = render_scene(id, scene, 1100, 900, reference.as_deref(), NativeAppearance::default())?;
             let folder = destination.join("scenes");
             std::fs::create_dir_all(&folder)?;
             doc.save(&folder.join(format!("{scene_key}.redoxskin")))?;
@@ -319,12 +66,404 @@ pub fn export(destination: &std::path::Path) -> Result<(), Box<dyn std::error::E
     Ok(())
 }
 
+pub fn native_preview(
+    theme: &str,
+    scene_id: &str,
+    width: u32,
+    height: u32,
+    output: &std::path::Path,
+    appearance: NativeAppearance,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if !redox_studio::scenes::THEMES.contains(&theme) {
+        return Err("Unknown native preview theme".into());
+    }
+    let scene = redox_studio::scenes::SceneId::ALL
+        .into_iter()
+        .find(|scene| scene.id() == scene_id)
+        .ok_or("Unknown native preview scene")?;
+    if !(900..=2048).contains(&width)
+        || !(600..=2048).contains(&height)
+        || width * height > 4_000_000
+    {
+        return Err("Preview viewport must be 900 to 2048 by 600 to 2048 points, with at most four million points total".into());
+    }
+    if !output.is_absolute()
+        || !output
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("redoxskin"))
+    {
+        return Err("Preview output must be an absolute .redoxskin file path".into());
+    }
+    render_scene(theme, scene, width, height, None, appearance)?.save(output)?;
+    Ok(())
+}
+
+fn render_scene(
+    id: &str,
+    scene: redox_studio::scenes::SceneId,
+    width: u32,
+    height: u32,
+    reference: Option<&std::path::Path>,
+    appearance: NativeAppearance,
+) -> Result<Document, Box<dyn std::error::Error>> {
+    let _recording = Recording::start();
+    let scene_key = format!("{}-{}", id, scene.id());
+    let viewport = Rect::from_min_size(Pos2::ZERO, Vec2::new(width as f32, height as f32));
+    let context = egui::Context::default();
+    super::conversation::appearance::set_preview_appearance(&context, appearance);
+    let mut app = crate::app::ReDox::design_preview(&context, id);
+    app.prepare_design_scene(scene);
+    let mut textures = HashMap::new();
+    let mut shapes = vec![];
+    for frame_number in 0..6 {
+        context.data_mut(|data| data.remove::<Vec<NativeRegion>>(egui::Id::new("export_native_regions")));
+        let output = context.run(
+            egui::RawInput {
+                screen_rect: Some(viewport),
+                ..Default::default()
+            },
+            |context| app.render_design(context),
+        );
+        raster::update(&mut textures, &output.textures_delta);
+        if frame_number == 5
+            && let Some(reference) = reference
+        {
+            raster::write(&context, output.clone(), &textures, reference);
+        }
+        shapes = output.shapes;
+    }
+    let mut doc = Document::blank();
+    doc.name = format!("ReDox {} {}", id, scene.label());
+    doc.source = Some(redox_studio::scenes::Source {
+        theme: id.into(),
+        scene,
+    });
+    doc.native_design = Some(NativeDesign {
+        palette: super::theme::palette().captured_colors(),
+        regions: context.data(|data| {
+            data.get_temp(egui::Id::new("export_native_regions")).unwrap_or_default()
+        }),
+    });
+    doc.pages[0].name = scene.label().into();
+    doc.author = "ReDox source".into();
+    let mut frame = Node::new(1, Kind::Frame, 0., 0.);
+    frame.name = format!("{id} original {width}x{height}");
+    frame.width = viewport.width();
+    frame.height = viewport.height();
+    frame.fill = [24, 24, 24, 255];
+    doc.pages[0].nodes.push(frame);
+    let mut texture_ids = HashMap::new();
+    for (id, image) in textures {
+        let pixels: Vec<u8> = image
+            .pixels
+            .iter()
+            .flat_map(|p| p.to_srgba_unmultiplied())
+            .collect();
+        let image = image::RgbaImage::from_raw(image.width() as u32, image.height() as u32, pixels)
+            .ok_or("Invalid image")?;
+        let mut png = std::io::Cursor::new(vec![]);
+        image.write_to(&mut png, image::ImageFormat::Png)?;
+        texture_ids.insert(id, doc.textures.len());
+        doc.textures.push(TextureAsset {
+            png_base64: base64::engine::general_purpose::STANDARD.encode(png.into_inner()),
+        });
+    }
+    let mut flattened = vec![];
+    fn flatten(clip: Rect, shape: egui::Shape, out: &mut Vec<egui::epaint::ClippedShape>) {
+        if let egui::Shape::Vec(shapes) = shape {
+            for shape in shapes {
+                flatten(clip, shape, out);
+            }
+        } else {
+            out.push(egui::epaint::ClippedShape {
+                clip_rect: clip,
+                shape,
+            });
+        }
+    }
+    for shape in shapes {
+        flatten(shape.clip_rect, shape.shape, &mut flattened);
+    }
+    let appearance_elements = context.data_mut(|data| {
+        let key = egui::Id::new("export_native_appearance");
+        let elements = data
+            .get_temp::<Vec<(&'static str, Rect, egui::Color32)>>(key)
+            .unwrap_or_default();
+        data.remove::<Vec<(&'static str, Rect, egui::Color32)>>(key);
+        elements
+    });
+    for shape in flattened {
+        let appearance_id = match &shape.shape {
+            egui::Shape::Rect(shape) => appearance_elements.iter().find_map(|(id, rect, fill)| {
+                (shape.fill == *fill && shape.rect == *rect).then_some(*id)
+            }),
+            _ => None,
+        };
+        let text = if let egui::Shape::Text(text) = &shape.shape {
+            Some((
+                text.galley.job.text.clone(),
+                text.galley
+                    .job
+                    .sections
+                    .first()
+                    .map(|s| s.format.font_id.size)
+                    .unwrap_or(14.),
+                text.override_text_color
+                    .or_else(|| {
+                        text.galley
+                            .job
+                            .sections
+                            .first()
+                            .map(|section| section.format.color)
+                            .filter(|color| *color != egui::Color32::PLACEHOLDER)
+                    })
+                    .unwrap_or(text.fallback_color)
+                    .to_srgba_unmultiplied(),
+                if text
+                    .galley
+                    .job
+                    .sections
+                    .first()
+                    .is_some_and(|s| s.format.font_id.family == egui::FontFamily::Monospace)
+                {
+                    redox_studio::document::Font::Mono
+                } else {
+                    redox_studio::document::Font::Sans
+                },
+            ))
+        } else {
+            None
+        };
+        let clip = shape.clip_rect.intersect(viewport);
+        let primitives = context.tessellate(vec![shape.clone()], 1.);
+        let mut meshes = vec![];
+        let mut bounds = Rect::NOTHING;
+        for primitive in primitives {
+            if let Primitive::Mesh(mesh) = primitive.primitive {
+                if mesh.vertices.is_empty() {
+                    continue;
+                }
+                for vertex in &mesh.vertices {
+                    bounds.extend_with(vertex.pos);
+                }
+                meshes.push(mesh);
+            }
+        }
+        if meshes.is_empty() || !bounds.intersects(clip) {
+            continue;
+        }
+        let mut node = Node::new(
+            doc.next_id(),
+            if text.is_some() {
+                Kind::Text
+            } else {
+                Kind::Artwork
+            },
+            bounds.min.x,
+            bounds.min.y,
+        );
+        node.parent = Some(1);
+        node.width = bounds.width().max(1.);
+        node.height = bounds.height().max(1.);
+        let (label, size, color, font) =
+            text.unwrap_or((String::new(), 14., [255; 4], Default::default()));
+        node.name = if let Some(id) = appearance_id {
+            id.into()
+        } else if label.is_empty() {
+            format!("Artwork {}", node.id)
+        } else {
+            label.chars().filter(|c| !c.is_control()).take(30).collect()
+        };
+        if node.name.trim().is_empty() {
+            node.name = format!("Text {}", node.id);
+        }
+        node.ui_script = redox_studio::actions::UiAction::from_label(&label)
+            .into_iter()
+            .collect();
+        node.font = font;
+        node.text = label.clone();
+        node.font_size = size.clamp(8., 160.);
+        node.text_color = color;
+        node.artwork = Some(Artwork {
+            text_layout: if let egui::Shape::Text(text) = &shape.shape {
+                let wrap = &text.galley.job.wrap;
+                Some(redox_studio::document::SourceTextLayout {
+                    width: wrap
+                        .max_width
+                        .is_finite()
+                        .then(|| wrap.max_width.clamp(1., 16000.)),
+                    max_rows: wrap.max_rows.clamp(1, 64),
+                    break_anywhere: wrap.break_anywhere,
+                    overflow_character: wrap.overflow_character,
+                    align: match text.galley.job.halign {
+                        egui::Align::Min => redox_studio::document::TextAlign::Left,
+                        egui::Align::Center => redox_studio::document::TextAlign::Center,
+                        egui::Align::Max => redox_studio::document::TextAlign::Right,
+                    },
+                })
+            } else {
+                None
+            },
+            font_face: if let egui::Shape::Text(text) = &shape.shape {
+                let family = text
+                    .galley
+                    .job
+                    .sections
+                    .first()
+                    .map(|s| &s.format.font_id.family);
+                match family {
+                    Some(egui::FontFamily::Monospace) => None,
+                    Some(egui::FontFamily::Name(name)) if name.as_ref() == "serif" => {
+                        Some("redox.serif".into())
+                    }
+                    Some(egui::FontFamily::Name(name)) if name.as_ref() == "semibold" => Some(
+                        if id == "win98" {
+                            "redox.tahoma.bold"
+                        } else {
+                            "redox.segoe.bold"
+                        }
+                        .into(),
+                    ),
+                    _ => Some(
+                        if id == "win98" {
+                            "redox.tahoma"
+                        } else {
+                            "redox.segoe"
+                        }
+                        .into(),
+                    ),
+                }
+            } else {
+                None
+            },
+            text_origin: if let egui::Shape::Text(text) = &shape.shape {
+                [text.pos.x - bounds.min.x, text.pos.y - bounds.min.y]
+            } else {
+                [0.; 2]
+            },
+            original_font: node.font,
+            original_text_align: node.text_align,
+            vector_icon: None,
+            size: [node.width, node.height],
+            original_text: label,
+            original_font_size: node.font_size,
+            original_color: color,
+            clip: [
+                clip.min.x - bounds.min.x,
+                clip.min.y - bounds.min.y,
+                clip.width(),
+                clip.height(),
+            ],
+            meshes: meshes
+                .into_iter()
+                .map(|mesh| ArtMesh {
+                    texture: texture_ids[&mesh.texture_id],
+                    indices: mesh.indices,
+                    vertices: mesh
+                        .vertices
+                        .into_iter()
+                        .map(|v| ArtVertex {
+                            position: [v.pos.x - bounds.min.x, v.pos.y - bounds.min.y],
+                            uv: [v.uv.x.clamp(0., 1.), v.uv.y.clamp(0., 1.)],
+                            color: v.color.to_srgba_unmultiplied(),
+                        })
+                        .collect(),
+                })
+                .collect(),
+        });
+        doc.pages[0].nodes.push(node);
+    }
+    for (rect, action) in recorded(&context) {
+        let mut node = Node::new(doc.next_id(), Kind::Button, rect.min.x, rect.min.y);
+        node.parent = Some(1);
+        node.name = format!("Control {}", action.id());
+        node.width = rect.width().max(1.);
+        node.height = rect.height().max(1.);
+        node.fill = [0; 4];
+        node.stroke_width = 0.;
+        node.text.clear();
+        node.ui_script = vec![action];
+        doc.pages[0].nodes.push(node);
+    }
+    compact_textures(&mut doc)?;
+    for node in &doc.pages[0].nodes {
+        if let Some(art) = &node.artwork {
+            for vertex in art.meshes.iter().flat_map(|m| &m.vertices) {
+                if vertex
+                    .position
+                    .iter()
+                    .any(|v| !v.is_finite() || v.abs() > 32000.)
+                    || vertex
+                        .uv
+                        .iter()
+                        .any(|v| !v.is_finite() || !(0.0..=1.0).contains(v))
+                {
+                    return Err(format!(
+                        "Invalid vertex in {} {}: {:?}",
+                        scene_key, node.name, vertex
+                    )
+                    .into());
+                }
+            }
+        }
+    }
+    Ok(doc)
+}
+
 pub fn record(ctx: &egui::Context, rect: Rect, action: redox_studio::actions::UiAction) {
+    if !RECORDING.get() {
+        return;
+    }
     ctx.data_mut(|d| {
         let entries = d.get_temp_mut_or_default::<Vec<(Rect, redox_studio::actions::UiAction)>>(
             egui::Id::new("export_controls"),
         );
         entries.push((rect, action));
+    });
+}
+
+pub(super) fn record_native_appearance(
+    context: &egui::Context,
+    id: &'static str,
+    rect: Rect,
+    fill: egui::Color32,
+) {
+    if !RECORDING.get() {
+        return;
+    }
+    context.data_mut(|data| {
+        let entries = data.get_temp_mut_or_default::<Vec<(&'static str, Rect, egui::Color32)>>(
+            egui::Id::new("export_native_appearance"),
+        );
+        if let Some(existing) = entries.iter_mut().find(|(key, _, _)| *key == id) {
+            *existing = (id, rect, fill);
+        } else {
+            entries.push((id, rect, fill));
+        }
+    });
+}
+
+pub(super) fn record_native_region(
+    context: &egui::Context,
+    id: NativeRegionId,
+    rect: Rect,
+    color: ThemeColor,
+) {
+    if !RECORDING.get() || !rect.is_finite() || !rect.is_positive() {
+        return;
+    }
+    context.data_mut(|data| {
+        let regions = data.get_temp_mut_or_default::<Vec<NativeRegion>>(egui::Id::new("export_native_regions"));
+        let region = NativeRegion {
+            id,
+            bounds: [rect.left(), rect.top(), rect.width(), rect.height()],
+            color,
+        };
+        if let Some(existing) = regions.iter_mut().find(|other| other.id == id) {
+            *existing = region;
+        } else {
+            regions.push(region);
+        }
     });
 }
 fn recorded(ctx: &egui::Context) -> Vec<(Rect, redox_studio::actions::UiAction)> {

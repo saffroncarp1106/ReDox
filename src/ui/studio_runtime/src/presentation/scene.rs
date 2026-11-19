@@ -61,6 +61,16 @@ impl View {
     }
 }
 
+pub fn fit(bounds: [f32; 4], viewport: Rect) -> (View, Rect) {
+    let size = Vec2::new(bounds[2], bounds[3]);
+    let zoom = (viewport.width().max(1.) / size.x.max(1.))
+        .min(viewport.height().max(1.) / size.y.max(1.))
+        .min(2.);
+    let rect = Rect::from_center_size(viewport.center(), size * zoom);
+    let origin = rect.min - Vec2::new(bounds[0], bounds[1]) * zoom;
+    (View { origin, zoom }, rect)
+}
+
 pub fn color(rgba: [u8; 4], opacity: f32) -> Color32 {
     Color32::from_rgba_unmultiplied(rgba[0], rgba[1], rgba[2], (rgba[3] as f32 * opacity) as u8)
 }

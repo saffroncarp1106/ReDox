@@ -14,6 +14,262 @@ fn task(id: &str) -> Task {
     }
 }
 
+#[test]
+fn compact_handoff_preserves_identity_and_points_to_full_evidence() {
+    let value = json!({"task_id":"job","status":"review_required","result":"é".repeat(10000),
+        "evidence":(0..30).map(|_| json!({"command":"x".repeat(500)})).collect::<Vec<_>>(),
+        "changed_paths":vec!["src/changed.rs"; 100]});
+    let encoded = compact_handoff(value, PathBuf::from("full-report.json"));
+    assert!(encoded.len() <= worker::REPORT_BYTES);
+    let decoded: Value = serde_json::from_str(&encoded).unwrap();
+    assert_eq!(decoded["task_id"], "job");
+    assert_eq!(decoded["full_report"], "full-report.json");
+    assert!(decoded["omitted_evidence"].as_u64().unwrap() > 0);
+}
+
+fn project() -> PathBuf {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("temp/verification/delegation")
+        .join(uuid::Uuid::new_v4().to_string());
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("observed.txt"), "EXISTING_OBSERVATION").unwrap();
+    root.canonicalize().unwrap()
+}
+
+fn reply(content: &str, calls: Value) -> String {
+    format!(
+        "{}\n",
+        json!({"message":{"content":content,"tool_calls":calls},"done":true})
+    )
+}
+
+async fn run_worker(args: Value, endpoint: String, root: PathBuf) -> Value {
+    let settings = ollama::Settings {
+        endpoint,
+        preferred_model: "test-worker".into(),
+        context_tokens: 32768,
+        ..Default::default()
+    };
+    let (sender, mut events) = mpsc::channel(128);
+    let drain = tokio::spawn(async move { while events.recv().await.is_some() {} });
+    let (_cancel, receiver) = watch::channel(false);
+    let output = execute(&args, settings, Some(root), Mode::Chat, sender, receiver)
+        .await
+        .unwrap();
+    drain.await.unwrap();
+    serde_json::from_str(&output).unwrap()
+}
+
+#[tokio::test]
+async fn handoff_returns_final_answer_and_resumes_recorded_observations() {
+    let root = project();
+    let read = json!([{"function":{"name":"read_file","arguments":{"path":"observed.txt"}}}]);
+    let (endpoint, _, handle) = ollama::tests::server(vec![
+        ("/api/show", json!({"capabilities":["tools"]}).to_string()),
+        ("/api/chat", reply(&"EARLY_COMMENTARY".repeat(1000), read)),
+        ("/api/chat", reply("FINAL_FINDINGS", json!([]))),
+    ]);
+    let result = run_worker(json!({"task":"Read observed.txt","scope":"observed.txt","acceptance":"Report the observation"}), endpoint, root.clone()).await;
+    handle.join().unwrap();
+    assert_eq!(result["result"], "FINAL_FINDINGS");
+    assert_eq!(result["status"], "review_required");
+    assert_eq!(result["tool_calls"], 1);
+    assert!(!result.to_string().contains("EARLY_COMMENTARY"));
+    let (endpoint, captured, handle) = ollama::tests::server(vec![
+        ("/api/show", json!({"capabilities":["tools"]}).to_string()),
+        ("/api/chat", reply("CORRECTION_COMPLETE", json!([]))),
+    ]);
+    let resumed = run_worker(json!({"task":"Correct the summary using the observation already read","task_id":result["task_id"]}),endpoint,root.clone()).await;
+    handle.join().unwrap();
+    assert_eq!(resumed["task_id"], result["task_id"]);
+    assert!(
+        captured.lock().unwrap()[1].1["messages"]
+            .to_string()
+            .contains("EXISTING_OBSERVATION")
+    );
+    let bad = ollama::Settings {
+        endpoint: "http://127.0.0.1:1".into(),
+        preferred_model: "other-model".into(),
+        ..Default::default()
+    };
+    let (sender, _events) = mpsc::channel(8);
+    let (_cancel, receiver) = watch::channel(false);
+    let error = execute(
+        &json!({"task":"wrong model","task_id":result["task_id"]}),
+        bad,
+        Some(root),
+        Mode::Chat,
+        sender,
+        receiver,
+    )
+    .await
+    .unwrap_err();
+    assert!(error.contains("original project, access mode and selected model"));
+}
+
+#[tokio::test]
+async fn unchanged_reads_stop_with_a_resumable_stalled_handoff() {
+    let root = project();
+    let call = json!([{"function":{"name":"read_file","arguments":{"path":"observed.txt"}}}]);
+    let mut responses = vec![("/api/show", json!({"capabilities":["tools"]}).to_string())];
+    responses.extend((0..4).map(|_| ("/api/chat", reply("Reading", call.clone()))));
+    let (endpoint, captured, handle) = ollama::tests::server(responses);
+    let result = run_worker(json!({"task":"Inspect the file"}), endpoint, root).await;
+    handle.join().unwrap();
+    assert_eq!(result["status"], "stalled");
+    assert_eq!(result["tool_calls"], 4);
+    assert!(result["task_id"].is_string());
+    assert!(
+        captured.lock().unwrap()[4].1["messages"]
+            .to_string()
+            .contains("One recovery attempt remains")
+    );
+}
+
+#[tokio::test]
+async fn delegation_continues_across_two_windows_and_eighty_tools() {
+    let root = project();
+    let batch = |start| {
+        let calls = (start..start + 40).map(|index| json!({"function":{"name":"read_file","arguments":{"path":format!("fixture-{index}.txt")}}})).collect::<Vec<_>>();
+        reply("Inspecting fixtures", json!(calls))
+    };
+    for index in 0..80 {
+        std::fs::write(
+            root.join(format!("fixture-{index}.txt")),
+            "fixture data\n".repeat(50),
+        )
+        .unwrap();
+    }
+    let (endpoint, captured, handle) = ollama::tests::server(vec![
+        ("/api/show", json!({"capabilities":["tools"]}).to_string()),
+        ("/api/chat", batch(0)),
+        (
+            "/api/chat",
+            reply(
+                "## Remaining tasks\nRead the second set.\n## Work completed\nRead fixtures 0 through 39.",
+                json!([]),
+            ),
+        ),
+        ("/api/chat", batch(40)),
+        (
+            "/api/chat",
+            reply(
+                "## Remaining tasks\nReport the verified result.\n## Work completed\nRead fixtures 0 through 79.",
+                json!([]),
+            ),
+        ),
+        ("/api/chat", reply("Verified all 80 fixtures.", json!([]))),
+    ]);
+    let result = run_worker(json!({"task":"Inspect files"}), endpoint, root).await;
+    handle.join().unwrap();
+    assert_eq!(result["status"], "review_required");
+    assert_eq!(result["tool_calls"], 80);
+    assert_eq!(result["result"], "Verified all 80 fixtures.");
+    let calls = captured.lock().unwrap();
+    assert_eq!(calls[2].1["stream"], false);
+    assert!(
+        calls[3].1["messages"]
+            .to_string()
+            .contains("Read the second set.")
+    );
+    assert!(
+        calls[3].1["messages"]
+            .to_string()
+            .contains("fixture-39.txt")
+    );
+    assert_eq!(calls[4].1["stream"], false);
+    assert!(
+        calls[5].1["messages"]
+            .to_string()
+            .contains("Report the verified result.")
+    );
+    assert!(
+        calls[5].1["messages"]
+            .to_string()
+            .contains("fixture-79.txt")
+    );
+    let folder = PathBuf::from(result["checkpoint"].as_str().unwrap()).with_file_name("handoffs");
+    let handoffs = std::fs::read_dir(folder)
+        .unwrap()
+        .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(handoffs.len(), 2);
+    for handoff in handoffs {
+        assert!(handoff.contains("## Remaining tasks"));
+        assert!(handoff.contains("## Work completed"));
+        assert!(handoff.contains("Tool result: read_file"));
+    }
+}
+
+#[tokio::test]
+async fn repeated_truncations_return_partial_work_without_claiming_completion() {
+    let root = project();
+    let mut responses = vec![("/api/show", json!({"capabilities":[]}).to_string())];
+    responses.extend((0..3).map(|_| {
+        (
+            "/api/chat",
+            format!(
+                "{}\n",
+                json!({"message":{"content":"unfinished"},"done":true,"done_reason":"length"})
+            ),
+        )
+    }));
+    let (endpoint, _, handle) = ollama::tests::server(responses);
+    let result = run_worker(json!({"task":"Finish a task"}), endpoint, root).await;
+    handle.join().unwrap();
+    assert_eq!(result["status"], "output_limit");
+    assert_ne!(result["status"], "review_required");
+}
+
+#[test]
+fn failed_handoffs_preserve_evidence_and_report_tool_failure() {
+    let result = tool_result(Ok(
+        json!({"status":"failed","result":"Actual server error","task_id":"retained"}).to_string(),
+    ));
+    assert_eq!(result["success"], false);
+    assert!(result.to_string().contains("Actual server error"));
+    assert!(result.to_string().contains("retained"));
+}
+
+#[test]
+fn old_delegation_threads_upgrade_their_tool_schema_once() {
+    let mut session = Session::default();
+    session.new_chat();
+    session.ollama.preferred_model = "test-worker".into();
+    let chat = session.active_mut().unwrap();
+    chat.delegation_tools = true;
+    chat.thread_id = Some("old-schema".into());
+    chat.draft = "Do a task".into();
+    let run = session.prepare_run().unwrap();
+    assert!(session.active().unwrap().thread_id.is_none());
+    assert!(
+        session
+            .active()
+            .unwrap()
+            .previous_thread_ids
+            .contains(&"old-schema".into())
+    );
+    crate::run::apply_event(
+        &mut session,
+        Some(run),
+        RunEvent {
+            run,
+            update: Update::Thread("new-schema".into()),
+        },
+    );
+    assert_eq!(
+        session.active().unwrap().delegation_tool_version,
+        TOOL_VERSION
+    );
+    session.finish_run(run, crate::domain::MessageStatus::Complete, None);
+    session.active_mut().unwrap().draft = "Continue".into();
+    session.prepare_run().unwrap();
+    assert_eq!(
+        session.active().unwrap().thread_id.as_deref(),
+        Some("new-schema")
+    );
+}
+
 #[tokio::test]
 async fn recovered_worker_results_return_to_codex_and_agents() {
     let (endpoint, captured, handle) = ollama::tests::server(vec![

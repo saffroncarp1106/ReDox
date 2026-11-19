@@ -1,4 +1,5 @@
 use eframe::egui;
+use redox_studio::native_appearance::{NativeAppearance, ThemeColor};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Palette {
@@ -27,6 +28,40 @@ impl Default for Palette {
             border: egui::Color32::from_rgb(48, 48, 48),
             blue: egui::Color32::from_rgb(45, 105, 202),
         }
+    }
+}
+
+impl Palette {
+    fn color_mut(&mut self, token: ThemeColor) -> &mut egui::Color32 {
+        match token {
+            ThemeColor::Background => &mut self.background,
+            ThemeColor::Sidebar => &mut self.sidebar,
+            ThemeColor::Rail => &mut self.rail,
+            ThemeColor::Surface => &mut self.surface,
+            ThemeColor::InputBackground => &mut self.input_background,
+            ThemeColor::Text => &mut self.text,
+            ThemeColor::MenuText => &mut self.menu_text,
+            ThemeColor::Muted => &mut self.muted,
+            ThemeColor::Border => &mut self.border,
+            ThemeColor::Accent => &mut self.blue,
+        }
+    }
+
+    pub(super) fn with_native_appearance(mut self, appearance: &NativeAppearance, theme: &str) -> Self {
+        for token in ThemeColor::ALL {
+            if let Some([r, g, b]) = appearance.theme_color(theme, token) {
+                *self.color_mut(token) = egui::Color32::from_rgb(r, g, b);
+            }
+        }
+        self
+    }
+
+    #[cfg(feature = "design-export")]
+    pub(super) fn captured_colors(mut self) -> std::collections::BTreeMap<ThemeColor, [u8; 3]> {
+        ThemeColor::ALL.into_iter().map(|token| {
+            let [r, g, b, _] = self.color_mut(token).to_srgba_unmultiplied();
+            (token, [r, g, b])
+        }).collect()
     }
 }
 
@@ -94,12 +129,34 @@ pub fn menu_text() -> egui::Color32 {
 }
 
 pub fn update_colors(ctx: &egui::Context, palette: Palette) {
-    if PALETTE.get() == palette {
+    let previous = PALETTE.get();
+    if previous == palette {
         return;
     }
     set_palette(palette);
     ctx.style_mut(|style| {
-        style.visuals.override_text_color = Some(palette.text);
+        let visuals = &mut style.visuals;
+        visuals.override_text_color = Some(palette.text);
+        if visuals.panel_fill == previous.background {
+            visuals.panel_fill = palette.background;
+        }
+        if visuals.extreme_bg_color == previous.background {
+            visuals.extreme_bg_color = palette.background;
+        }
+        if visuals.window_fill == previous.sidebar {
+            visuals.window_fill = palette.sidebar;
+        }
+        if visuals.widgets.inactive.fg_stroke.color == previous.muted {
+            visuals.widgets.inactive.fg_stroke.color = palette.muted;
+        }
+        for widget in [&mut visuals.widgets.hovered, &mut visuals.widgets.active] {
+            if widget.bg_fill == previous.surface {
+                widget.bg_fill = palette.surface;
+            }
+            if widget.weak_bg_fill == previous.surface {
+                widget.weak_bg_fill = palette.surface;
+            }
+        }
     });
     ctx.request_repaint();
 }

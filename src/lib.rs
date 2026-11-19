@@ -7,10 +7,15 @@ pub mod desktop;
 pub mod domain;
 pub mod history;
 pub mod media;
+pub mod notifications;
 pub mod ollama;
-pub mod run;
 pub mod resources;
+pub mod run;
 pub mod updates;
 pub mod usage;
 
 pub mod discord_presence;
+
+#[cfg(test)]
+#[path = "../tests/perf/measure.rs"]
+mod perf_measure;

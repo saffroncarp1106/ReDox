@@ -7,11 +7,13 @@ use eframe::egui::{
     vec2,
 };
 use redox::domain::Mode;
+#[cfg(feature = "design-export")]
+use redox_studio::native_appearance::{NativeRegionId, ThemeColor};
 use uuid::Uuid;
 
 impl ReDox {
     pub(in crate::app) fn title_bar(&mut self, context: &egui::Context) {
-        egui::TopBottomPanel::top("window_chrome")
+        let _panel = egui::TopBottomPanel::top("window_chrome")
             .exact_height(42.0)
             .frame(
                 Frame::NONE
@@ -36,6 +38,12 @@ impl ReDox {
                     let (_, drag) =
                         ui.allocate_exact_size(vec2(drag_width, 30.0), Sense::click_and_drag());
                     super::window_frame::title_drag(context, &drag);
+                    #[cfg(feature = "design-export")]
+                    super::design_export::record(
+                        context,
+                        drag.rect,
+                        redox_studio::actions::UiAction::WindowDrag,
+                    );
 
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         self.title_ui_picker(ui);
@@ -53,6 +61,10 @@ impl ReDox {
                     });
                 });
             });
+        #[cfg(feature = "design-export")]
+        super::design_export::record_native_region(
+            context, NativeRegionId::TitleBar, _panel.response.rect, ThemeColor::Rail,
+        );
     }
 
     pub(super) fn main_menus(&mut self, ui: &mut egui::Ui, context: &egui::Context) {
@@ -280,7 +292,7 @@ impl ReDox {
     }
 
     pub(in crate::app) fn sidebar(&mut self, context: &egui::Context) {
-        egui::SidePanel::left("project_sidebar")
+        let _panel = egui::SidePanel::left("project_sidebar")
             .default_width(289.0)
             .width_range(230.0..=360.0)
             .show_separator_line(false)
@@ -414,6 +426,10 @@ impl ReDox {
                     Stroke::new(1.0_f32, border()),
                 );
             });
+        #[cfg(feature = "design-export")]
+        super::design_export::record_native_region(
+            context, NativeRegionId::Sidebar, _panel.response.rect, ThemeColor::Sidebar,
+        );
     }
 
     fn project_section(&mut self, ui: &mut egui::Ui, context: &egui::Context) {

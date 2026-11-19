@@ -102,6 +102,8 @@ pub struct Chat {
     #[serde(default)]
     pub delegation_tools: bool,
     #[serde(default)]
+    pub delegation_tool_version: u32,
+    #[serde(default)]
     pub delegated_tasks: Vec<crate::delegation::Task>,
     #[serde(default)]
     pub provider: Provider,
@@ -149,6 +151,7 @@ impl Chat {
             send_after: BTreeMap::new(),
             desktop_tools: false,
             delegation_tools: false,
+            delegation_tool_version: 0,
             delegated_tasks: Vec::new(),
             provider: Provider::Codex,
             ollama_model: String::new(),
@@ -238,6 +241,7 @@ impl Chat {
     fn reset_server_thread(&mut self) {
         self.desktop_tools = false;
         self.delegation_tools = false;
+        self.delegation_tool_version = 0;
         if let Some(thread) = self.thread_id.take() {
             self.previous_thread_ids.push(thread);
         }
@@ -463,7 +467,8 @@ impl Session {
         if let Some(chat) = self.active_mut()
             && chat.provider == Provider::Codex
             && delegate
-            && !chat.delegation_tools
+            && (!chat.delegation_tools
+                || chat.delegation_tool_version != crate::delegation::TOOL_VERSION)
         {
             chat.reset_server_thread();
         }

@@ -10,6 +10,9 @@ use crate::codex::{Approval, ProviderEvent};
 use crate::domain::Mode;
 
 const FILE_LIMIT: u64 = 128 * 1024;
+const COMMAND_OUTPUT_LIMIT: u64 = 64 * 1024;
+const DEFAULT_COMMAND_TIMEOUT: u64 = 30;
+const MAX_COMMAND_TIMEOUT: u64 = 24 * 60 * 60;
 
 pub(super) fn definitions(mode: Mode) -> Value {
     let mut tools = vec![
@@ -23,14 +26,19 @@ pub(super) fn definitions(mode: Mode) -> Value {
             "read_file",
             "Read a UTF-8 project file (up to 128 KiB).",
             &["path"],
-            json!({"path":{"type":"string"}}),
+            json!({"path":{"type":"string","description":"Path relative to the selected project root, for example src/main.rs."}}),
         ),
     ];
     if mode != Mode::Chat {
+        let shell = if cfg!(windows) {
+            "cmd.exe /D /S /C (cmd syntax; invoke powershell.exe explicitly for PowerShell)"
+        } else {
+            "/bin/sh -c (POSIX shell syntax)"
+        };
         tools.extend([
             definition("write_file", "Create or replace a UTF-8 project file using the complete new content. Existing files are backed up. Requires approval except in Full access mode.", &["path","content"], json!({"path":{"type":"string"},"content":{"type":"string"}})),
             definition("make_directory", "Create a project directory. Requires approval except in Full access mode.", &["path"], json!({"path":{"type":"string"}})),
-            definition("run_command", "Run a shell command in the project for at most 30 seconds. Requires approval except in Full access mode. Runs with the user's OS permissions, without an OS sandbox.", &["command"], json!({"command":{"type":"string"}})),
+            definition("run_command", &format!("Run a command using {shell} in the project. Set timeout_seconds for slow builds or tests. Requires approval except in Full access mode. Runs with the user's OS permissions, without an OS sandbox."), &["command"], json!({"command":{"type":"string"},"timeout_seconds":{"type":"integer","minimum":1,"maximum":MAX_COMMAND_TIMEOUT,"default":DEFAULT_COMMAND_TIMEOUT}})),
         ]);
     }
     json!(tools)
@@ -241,21 +249,35 @@ pub(super) async fn execute(
             if command.len() > 16 * 1024 {
                 return Err("Command is too long.".into());
             }
+            let timeout = match arguments.get("timeout_seconds") {
+                None => DEFAULT_COMMAND_TIMEOUT,
+                Some(value) => value
+                    .as_u64()
+                    .filter(|seconds| (1..=MAX_COMMAND_TIMEOUT).contains(seconds))
+                    .ok_or_else(|| {
+                        format!(
+                            "timeout_seconds must be an integer from 1 to {MAX_COMMAND_TIMEOUT}."
+                        )
+                    })?,
+            };
             let cwd = workspace
                 .canonicalize()
                 .map_err(|error| error.to_string())?;
-            approve(format!("Ollama requests a shell command\nFolder: {}\nCommand: {command}\n\nThis runs with your OS account permissions, without an OS sandbox. Timeout: 30 seconds.", cwd.display()), mode, sender).await?;
-            run_command(command, &cwd).await
+            approve(format!("Ollama requests a shell command\nFolder: {}\nCommand: {command}\n\nThis runs with your OS account permissions, without an OS sandbox. Timeout: {timeout} seconds.", cwd.display()), mode, sender).await?;
+            run_command(command, &cwd, timeout).await
         }
         _ => Err(format!("Unknown project tool: {name}")),
     }
 }
 
-async fn run_command(command: &str, cwd: &Path) -> Result<String, String> {
+async fn run_command(command: &str, cwd: &Path, timeout: u64) -> Result<String, String> {
     #[cfg(windows)]
     let mut process = {
         let mut process = tokio::process::Command::new("cmd.exe");
-        process.args(["/D", "/S", "/C", command]);
+        // cmd uses different quoting rules from Windows executable arguments.
+        process
+            .args(["/D", "/S", "/C"])
+            .raw_arg(format!("\"{command}\""));
         process.creation_flags(0x08000000);
         process
     };
@@ -285,19 +307,26 @@ async fn run_command(command: &str, cwd: &Path) -> Result<String, String> {
             stderr?
         ))
     };
-    tokio::time::timeout(Duration::from_secs(30), work)
+    tokio::time::timeout(Duration::from_secs(timeout), work)
         .await
-        .map_err(|_| "Command timed out after 30 seconds.".to_owned())?
+        .map_err(|_| format!("Command timed out after {timeout} seconds."))?
 }
 
-async fn read_output(reader: impl tokio::io::AsyncRead + Unpin) -> Result<String, String> {
+async fn read_output(mut reader: impl tokio::io::AsyncRead + Unpin) -> Result<String, String> {
     let mut bytes = Vec::new();
-    reader
-        .take(64 * 1024)
+    (&mut reader)
+        .take(COMMAND_OUTPUT_LIMIT)
         .read_to_end(&mut bytes)
         .await
         .map_err(|error| error.to_string())?;
-    Ok(String::from_utf8_lossy(&bytes).into_owned())
+    let discarded = tokio::io::copy(&mut reader, &mut tokio::io::sink())
+        .await
+        .map_err(|error| error.to_string())?;
+    let mut output = String::from_utf8_lossy(&bytes).into_owned();
+    if discarded > 0 {
+        output.push_str("\n[Output truncated after 64 KiB; remaining output drained.]\n");
+    }
+    Ok(output)
 }
 
 #[cfg(test)]

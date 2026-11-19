@@ -8,6 +8,7 @@ pub mod actions;
 pub mod assets;
 pub mod document;
 pub mod editor;
+pub mod native_appearance;
 pub mod originals;
 pub mod presentation;
 pub mod scenes;

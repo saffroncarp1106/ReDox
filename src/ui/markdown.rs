@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
 
@@ -123,9 +124,9 @@ fn render_math(ui: &mut egui::Ui, source: &str, inline: bool) {
     MATH.with(|cache| cache.borrow_mut().show(ui, source, inline));
 }
 
-pub(super) fn normalize_delimiters(source: &str) -> String {
+pub(super) fn normalize_delimiters(source: &str) -> Cow<'_, str> {
     if !source.contains(r"\[") && !source.contains(r"\(") {
-        return source.to_owned();
+        return Cow::Borrowed(source);
     }
     let mut protected: Vec<_> = Parser::new(source)
         .into_offset_iter()
@@ -145,7 +146,7 @@ pub(super) fn normalize_delimiters(source: &str) -> String {
         offset = range.end;
     }
     normalize_text(&source[offset..], &mut output);
-    output
+    Cow::Owned(output)
 }
 
 fn normalize_text(source: &str, output: &mut String) {

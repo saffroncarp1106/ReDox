@@ -55,12 +55,21 @@ impl ReDox {
             | UiAction::SettingsClose => {}
             UiAction::Sidebar => self.sidebar_visible = !self.sidebar_visible,
             UiAction::AddFiles => self.pick_files(ctx),
+            UiAction::WindowClose => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
+            UiAction::WindowMinimize => {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+            }
+            UiAction::WindowMaximize => {
+                let maximized = ctx.input(|input| input.viewport().maximized.unwrap_or(false));
+                ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
+            }
             UiAction::Menus
             | UiAction::Model
             | UiAction::Effort
             | UiAction::ModelEffort
             | UiAction::Composer
-            | UiAction::Conversation => {}
+            | UiAction::Conversation
+            | UiAction::WindowDrag => {}
         }
     }
 }

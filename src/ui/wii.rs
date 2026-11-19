@@ -427,6 +427,12 @@ impl ReDox {
                         Sense::click_and_drag(),
                     );
                     super::window_frame::title_drag(context, &drag);
+                    #[cfg(feature = "design-export")]
+                    super::design_export::record(
+                        context,
+                        drag.rect,
+                        redox_studio::actions::UiAction::WindowDrag,
+                    );
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         if icons::button(ui, Icon::Close, "Close window").clicked() {
                             context.send_viewport_cmd(egui::ViewportCommand::Close);

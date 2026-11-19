@@ -8,7 +8,12 @@ impl ReDox {
         if self.is_ollama() {
             if let Some(chat) = self.session.active() {
                 let stats = &chat.ollama_usage.last;
-                let limit = self.session.ollama.context_tokens.max(1);
+                let model_limit = self
+                    .ollama_models
+                    .iter()
+                    .find(|model| model.name == chat.ollama_model)
+                    .and_then(|model| model.details.context_length);
+                let limit = self.session.ollama.context_for(model_limit);
                 ui.label(
                     RichText::new(format!(
                         "Context: {:.0}% used",
@@ -209,6 +214,16 @@ impl ReDox {
                 }
             });
         });
+        ui.add_space(8.0);
+        match redox::ollama::lifetime_tokens() {
+            Ok(total) => {
+                ui.label(format!("Ollama lifetime tokens: {}", token_count(total)))
+                    .on_hover_text("Prompt and generated tokens reported to ReDox since tracking began, including delegated runs.");
+            }
+            Err(_) => {
+                ui.label("Ollama lifetime tokens: unavailable");
+            }
+        }
         if let Some(error) = &self.usage_error {
             ui.label(RichText::new(error).color(Color32::from_rgb(235, 150, 135)));
             if self.usage.is_some() {
@@ -229,7 +244,9 @@ impl ReDox {
             if info.buckets.is_empty() {
                 ui.label("No quota windows were returned for this account.");
             }
+            theme::panel_scroll(ui);
             super::scroll::ScrollArea::vertical()
+                .classic_inner_margin(8.0)
                 .max_height((context.content_rect().height() - 280.0).clamp(160.0, 450.0))
                 .show(ui, |ui| {
                     for bucket in &info.buckets {
@@ -307,4 +324,16 @@ impl ReDox {
             );
         }
     }
+}
+
+fn token_count(total: u64) -> String {
+    let digits = total.to_string();
+    let mut formatted = String::new();
+    for (index, digit) in digits.chars().enumerate() {
+        if index != 0 && (digits.len() - index) % 3 == 0 {
+            formatted.push(',');
+        }
+        formatted.push(digit);
+    }
+    formatted
 }

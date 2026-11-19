@@ -29,6 +29,18 @@ pub fn export_designs(destination: &std::path::Path) -> Result<(), Box<dyn std::
     ui::design_export::export(destination)
 }
 
+#[cfg(feature = "design-export")]
+pub fn studio_native_preview(
+    theme: &str,
+    scene: &str,
+    width: u32,
+    height: u32,
+    output: &std::path::Path,
+    appearance: redox_studio::native_appearance::NativeAppearance,
+) -> Result<(), Box<dyn std::error::Error>> {
+    ui::design_export::native_preview(theme, scene, width, height, output, appearance)
+}
+
 enum Event {
     OllamaModels(u64, String, Result<Vec<ollama::Model>, String>),
     UiImport(Result<String, String>),
@@ -143,6 +155,9 @@ impl ReDox {
             .and_then(|storage| eframe::get_value(storage, ui::PREFERENCES_KEY))
             .unwrap_or_default();
         ui_preferences.normalize();
+        if design.is_some() {
+            ui_preferences.follow_studio = false;
+        }
         let ui_folder = ui::packs::root();
         let ui_catalog = ui::packs::discover(&ui_folder);
         let selected = design
@@ -457,6 +472,7 @@ impl ReDox {
             return;
         }
         self.ui_preferences.ui = id.to_owned();
+        self.ui_preferences.studio_skin = None;
         if let Ok(mut restart) = self.restart_request.lock() {
             *restart = true;
         }
@@ -1059,6 +1075,30 @@ impl ReDox {
         });
     }
 
+    fn attach_dropped_files(&mut self, paths: Vec<PathBuf>, context: &egui::Context) {
+        if self.picking_files {
+            self.attachment_error = Some(
+                "Wait for the current attachments to finish loading, then drop files again.".into(),
+            );
+            return;
+        }
+        if self.session.active().is_none() {
+            self.session.new_chat();
+        }
+        let Some(chat_id) = self.session.active().map(|chat| chat.id) else {
+            return;
+        };
+        self.picking_files = true;
+        self.attachment_error = None;
+        let sender = self.sender.clone();
+        let context = context.clone();
+        thread::spawn(move || {
+            let result = read_attachments(paths);
+            let _ = sender.send(Event::Attachments(chat_id, result));
+            context.request_repaint();
+        });
+    }
+
     fn paste_clipboard_attachments(&mut self, context: &egui::Context) -> bool {
         let payload = match redox::clipboard::capture() {
             Ok(Some(payload)) => payload,
@@ -1163,6 +1203,9 @@ impl ReDox {
             }
 
             if run::apply_event(&mut self.session, active, event) {
+                if completed {
+                    redox::notifications::response_complete();
+                }
                 self.running = None;
                 self.desktop_overlay = None;
                 self.approval = None;
@@ -1419,6 +1462,28 @@ fn read_attachments(paths: Vec<PathBuf>) -> Result<Vec<Attachment>, String> {
     paths.into_iter().map(Attachment::read).collect()
 }
 
+fn has_extension(path: &std::path::Path, extension: &str) -> bool {
+    path.extension()
+        .is_some_and(|value| value.eq_ignore_ascii_case(extension))
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum DropKind {
+    StudioSkin,
+    UiConfig,
+    Attachment,
+}
+
+fn drop_kind(paths: &[PathBuf]) -> DropKind {
+    if paths.len() == 1 && has_extension(&paths[0], "redoxskin") {
+        DropKind::StudioSkin
+    } else if paths.iter().all(|path| has_extension(path, "json")) {
+        DropKind::UiConfig
+    } else {
+        DropKind::Attachment
+    }
+}
+
 impl eframe::App for ReDox {
     fn raw_input_hook(&mut self, context: &egui::Context, input: &mut egui::RawInput) {
         self.handle_clipboard_input(context, input);
@@ -1434,14 +1499,17 @@ impl eframe::App for ReDox {
                 .filter_map(|file| file.path.clone())
                 .collect::<Vec<_>>()
         });
-        if dropped.len() == 1
-            && dropped[0]
-                .extension()
-                .is_some_and(|extension| extension.eq_ignore_ascii_case("redoxskin"))
-        {
-            self.load_studio_skin(dropped[0].clone());
-        } else if !dropped.is_empty() && !self.skin_picture_drop(&dropped, context) {
-            self.import_ui(Some(dropped), context);
+        if !dropped.is_empty() {
+            let kind = drop_kind(&dropped);
+            if kind == DropKind::StudioSkin {
+                self.load_studio_skin(dropped[0].clone());
+            } else if !self.skin_picture_drop(&dropped, context) {
+                match kind {
+                    DropKind::UiConfig => self.import_ui(Some(dropped), context),
+                    DropKind::Attachment => self.attach_dropped_files(dropped, context),
+                    DropKind::StudioSkin => unreachable!(),
+                }
+            }
         }
         if self.ui_scanned.elapsed() > Duration::from_secs(3) {
             self.scan_ui();
@@ -1518,5 +1586,22 @@ impl Drop for ReDox {
         if let Some(runtime) = self.runtime.take() {
             runtime.shutdown_background();
         }
+    }
+}
+
+#[cfg(test)]
+mod drop_tests {
+    use super::{DropKind, drop_kind};
+    use std::path::PathBuf;
+
+    #[test]
+    fn dropped_files_use_their_file_type() {
+        let classify =
+            |names: &[&str]| drop_kind(&names.iter().map(PathBuf::from).collect::<Vec<_>>());
+        assert_eq!(classify(&["theme.REDOXSKIN"]), DropKind::StudioSkin);
+        assert_eq!(classify(&["theme.json"]), DropKind::UiConfig);
+        assert_eq!(classify(&["photo.PNG"]), DropKind::Attachment);
+        assert_eq!(classify(&["notes.md"]), DropKind::Attachment);
+        assert_eq!(classify(&["theme.json", "photo.png"]), DropKind::Attachment);
     }
 }

@@ -18,6 +18,8 @@ pub const MAX_DEPTH: usize = 16;
 pub struct Document {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<crate::scenes::Source>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_design: Option<crate::native_appearance::NativeDesign>,
     pub version: u8,
     pub name: String,
     pub author: String,
@@ -371,6 +373,7 @@ impl Document {
     pub fn blank() -> Self {
         Self {
             source: None,
+            native_design: None,
             version: 2,
             name: "Untitled".into(),
             author: "Creator".into(),
@@ -394,6 +397,9 @@ impl Document {
 
     pub fn validate(&self) -> Result<(), String> {
         use base64::Engine;
+        if let Some(design) = &self.native_design {
+            design.validate()?;
+        }
         if self.textures.len() > 8 {
             return Err("A design supports up to 8 embedded textures".into());
         }

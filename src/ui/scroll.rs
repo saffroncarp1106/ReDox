@@ -8,6 +8,7 @@ pub(super) struct ScrollArea {
     axis: usize,
     max_size: Vec2,
     salt: Option<Id>,
+    classic_inner_margin: f32,
 }
 
 impl ScrollArea {
@@ -17,6 +18,7 @@ impl ScrollArea {
             axis: 1,
             max_size: Vec2::INFINITY,
             salt: None,
+            classic_inner_margin: 0.0,
         }
     }
 
@@ -26,6 +28,7 @@ impl ScrollArea {
             axis: 0,
             max_size: Vec2::INFINITY,
             salt: None,
+            classic_inner_margin: 0.0,
         }
     }
 
@@ -38,6 +41,11 @@ impl ScrollArea {
     pub fn max_height(mut self, height: f32) -> Self {
         self.max_size.y = height;
         self.area = self.area.max_height(height);
+        self
+    }
+
+    pub fn classic_inner_margin(mut self, margin: f32) -> Self {
+        self.classic_inner_margin = margin;
         self
     }
 
@@ -98,7 +106,7 @@ impl ScrollArea {
             .scope(|ui| {
                 ui.spacing_mut().scroll = egui::style::ScrollStyle {
                     bar_width: WIDTH,
-                    bar_inner_margin: 0.0,
+                    bar_inner_margin: self.classic_inner_margin,
                     bar_outer_margin: 0.0,
                     handle_min_length: 17.0,
                     ..egui::style::ScrollStyle::solid()
@@ -111,8 +119,8 @@ impl ScrollArea {
             return output;
         }
         let mut bar = output.inner_rect;
-        bar.min[1 - axis] = bar.max[1 - axis];
-        bar.max[1 - axis] += WIDTH;
+        bar.min[1 - axis] = bar.max[1 - axis] + self.classic_inner_margin;
+        bar.max[1 - axis] = bar.min[1 - axis] + WIDTH;
         let (first, track, last, thumb) = geometry(
             bar,
             axis,

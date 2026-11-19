@@ -61,6 +61,14 @@ pub enum UiAction {
     SettingsAbout,
     #[serde(rename = "settings.close")]
     SettingsClose,
+    #[serde(rename = "window.close")]
+    WindowClose,
+    #[serde(rename = "window.minimize")]
+    WindowMinimize,
+    #[serde(rename = "window.maximize")]
+    WindowMaximize,
+    #[serde(rename = "window.drag")]
+    WindowDrag,
 }
 
 impl UiAction {
@@ -94,6 +102,10 @@ impl UiAction {
         Self::SettingsUpdates,
         Self::SettingsAbout,
         Self::SettingsClose,
+        Self::WindowClose,
+        Self::WindowMinimize,
+        Self::WindowMaximize,
+        Self::WindowDrag,
     ];
     pub fn label(self) -> &'static str {
         match self {
@@ -126,6 +138,10 @@ impl UiAction {
             Self::SettingsUpdates => "Updates",
             Self::SettingsAbout => "About",
             Self::SettingsClose => "Close settings",
+            Self::WindowClose => "Close window",
+            Self::WindowMinimize => "Minimize",
+            Self::WindowMaximize => "Maximize / restore",
+            Self::WindowDrag => "Drag window",
         }
     }
     pub fn id(self) -> String {
@@ -140,6 +156,7 @@ impl UiAction {
                 | Self::ModelEffort
                 | Self::Composer
                 | Self::Conversation
+                | Self::WindowDrag
         )
     }
     pub fn scene(self) -> Option<crate::scenes::SceneId> {
@@ -179,6 +196,9 @@ impl UiAction {
             "My Chats" | "Chats" | "History" => Self::History,
             "Ollama Agents" | "Agents" | "Ollama agent" | "Hide Agents" => Self::OllamaAgent,
             "+ Attach" | "Add files" => Self::AddFiles,
+            "Close window" | "Close ReDox" => Self::WindowClose,
+            "Minimize" => Self::WindowMinimize,
+            "Maximize / restore" => Self::WindowMaximize,
             _ => return None,
         })
     }

@@ -2,6 +2,7 @@
 setlocal
 cd /d "%~dp0"
 if errorlevel 1 goto failed
+if /i "%~1"=="--qualified-ollama" goto qualified_ollama
 set "REDOX_PROFILE=release"
 if /i "%~1"=="--debug" (
     set "REDOX_PROFILE=debug"
@@ -16,8 +17,18 @@ if errorlevel 1 goto failed
 start "" /d "%~dp0" "%~dp0target\%REDOX_PROFILE%\redox.exe"
 if errorlevel 1 goto failed
 exit /b 0
+:qualified_ollama
+cargo build --locked --bin ollama-qualifier
+if errorlevel 1 goto failed
+where py >nul 2>nul
+if errorlevel 1 (
+    python -B "%~dp0src\ollama_service.py"
+) else (
+    py -3 -B "%~dp0src\ollama_service.py"
+)
+exit /b %errorlevel%
 :usage
-echo Usage: "%~nx0" [--debug ^| --release]
+echo Usage: "%~nx0" [--debug ^| --release ^| --qualified-ollama]
 exit /b 1
 :failed
 echo Build or launch failed. Copy the error above when reporting the problem.

@@ -3117,7 +3117,7 @@ checksum = "20675572f6f24e9e76ef639bc5552774ed45f1c30e2951e1e99c59888861c539"
 
 [[package]]
 name = "redox"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "arboard",
  "base64 0.22.1",
@@ -3141,6 +3141,7 @@ dependencies = [
  "uuid 1.26.1",
  "windows-sys 0.61.2",
  "winresource",
+ "winrt-toast-reborn",
 ]
 
 [[package]]
@@ -4963,12 +4964,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "winreg"
+version = "0.55.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb5a765337c50e9ec252c2069be9bf91c7df47afb103b642ba3a53bf8101be97"
+dependencies = [
+ "cfg-if",
+ "windows-sys 0.59.0",
+]
+
+[[package]]
 name = "winresource"
 version = "0.1.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2bc6d36480b829272a5bdabf08e6dca8004761c1da7e35efef800540c66221b"
 dependencies = [
  "version_check",
+]
+
+[[package]]
+name = "winrt-toast-reborn"
+version = "0.3.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a4536ba8861defe9571414f4629a64e613cc5be2ebf7739858b2ca64a2bdadf1"
+dependencies = [
+ "scopeguard",
+ "thiserror 2.0.21",
+ "url",
+ "windows 0.61.3",
+ "winreg",
 ]
 
 [[package]]

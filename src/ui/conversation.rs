@@ -5,6 +5,10 @@ use eframe::egui::{
     self, Align, Color32, FontId, Frame, Layout, Margin, RichText, Sense, Stroke, vec2,
 };
 use redox::domain::{Chat, Message, MessageStatus, Mode, Role};
+#[cfg(feature = "design-export")]
+use redox_studio::native_appearance::{NativeRegionId, ThemeColor};
+
+pub(super) mod appearance;
 
 impl ReDox {
     pub(in crate::app) fn conversation(&mut self, context: &egui::Context) {
@@ -71,10 +75,20 @@ impl ReDox {
         }
         self.composer(context, None);
 
-        egui::CentralPanel::default()
+        let use_transcript_surface = self.active_ui.id == "codex"
+            && self
+                .session
+                .active()
+                .is_some_and(|chat| !chat.messages.is_empty());
+        let transcript_surface = if use_transcript_surface {
+            appearance::transcript_surface(context).unwrap_or_else(background)
+        } else {
+            background()
+        };
+        let panel = egui::CentralPanel::default()
             .frame(
                 Frame::NONE
-                    .fill(background())
+                    .fill(transcript_surface)
                     .inner_margin(Margin::symmetric(26, 0)),
             )
             .show(context, |ui| {
@@ -115,6 +129,25 @@ impl ReDox {
 
                 render_transcript(ui, chat, chat.id, 0.0, self.ui_preferences.codex_mode);
             });
+        #[cfg(feature = "design-export")]
+        {
+            super::design_export::record_native_region(
+                context,
+                NativeRegionId::Conversation,
+                panel.response.rect,
+                ThemeColor::Background,
+            );
+            if use_transcript_surface {
+                super::design_export::record_native_appearance(
+                    context,
+                    redox_studio::native_appearance::TRANSCRIPT_SURFACE_ID,
+                    panel.response.rect,
+                    transcript_surface,
+                );
+            }
+        }
+        #[cfg(not(feature = "design-export"))]
+        let _ = panel;
     }
 
     pub(super) fn composer(&mut self, context: &egui::Context, parent: Option<&mut egui::Ui>) {
@@ -466,11 +499,18 @@ impl ReDox {
                 );
             }
         };
-        if let Some(ui) = parent {
-            panel.show_inside(ui, contents);
+        let _panel = if let Some(ui) = parent {
+            panel.show_inside(ui, contents)
         } else {
-            panel.show(context, contents);
-        }
+            panel.show(context, contents)
+        };
+        #[cfg(feature = "design-export")]
+        super::design_export::record_native_region(
+            context,
+            NativeRegionId::Composer,
+            _panel.response.rect,
+            if classic { ThemeColor::Surface } else { ThemeColor::Background },
+        );
 
         if send {
             self.dispatch_ui_action(redox_studio::actions::UiAction::Send, context);

@@ -234,6 +234,25 @@ pub fn show_with_values(
     values: Values<'_>,
     native: &mut impl FnMut(&mut egui::Ui, &Control<'_>),
 ) -> Vec<UiAction> {
+    show_document(ui, document, values, false, native)
+}
+
+pub fn show_fitted_with_values(
+    ui: &mut egui::Ui,
+    document: &Document,
+    values: Values<'_>,
+    native: &mut impl FnMut(&mut egui::Ui, &Control<'_>),
+) -> Vec<UiAction> {
+    show_document(ui, document, values, true, native)
+}
+
+fn show_document(
+    ui: &mut egui::Ui,
+    document: &Document,
+    values: Values<'_>,
+    fit_height: bool,
+    native: &mut impl FnMut(&mut egui::Ui, &Control<'_>),
+) -> Vec<UiAction> {
     let Some(page) = document.pages.first() else {
         return vec![];
     };
@@ -245,12 +264,17 @@ pub fn show_with_values(
     ) else {
         return vec![];
     };
-    let zoom = (ui.available_width().max(1.) / bounds[2].max(1.)).min(2.0);
-    let (rect, _) = ui.allocate_exact_size(Vec2::new(bounds[2], bounds[3]) * zoom, Sense::hover());
-    let view = View {
-        origin: rect.min - Vec2::new(bounds[0], bounds[1]) * zoom,
-        zoom,
+    let (view, rect) = if fit_height {
+        let (viewport, _) = ui.allocate_exact_size(ui.available_size(), Sense::hover());
+        scene::fit(bounds, viewport)
+    } else {
+        let zoom = (ui.available_width().max(1.) / bounds[2].max(1.)).min(2.0);
+        let size = Vec2::new(bounds[2], bounds[3]) * zoom;
+        let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
+        let origin = rect.min - Vec2::new(bounds[0], bounds[1]) * zoom;
+        (View { origin, zoom }, rect)
     };
+    let zoom = view.zoom;
     let mut painting = page.clone();
     for node in &page.nodes {
         let [action] = node.ui_script.as_slice() else {
@@ -341,18 +365,22 @@ pub fn show_with_values(
         )));
         child.set_clip_rect(clip);
         child.set_opacity(opacity);
-        let sense = if matches!(action, UiAction::Composer | UiAction::Conversation) {
-            Sense::hover()
-        } else {
-            Sense::click()
+        let sense = match action {
+            UiAction::Composer | UiAction::Conversation => Sense::hover(),
+            UiAction::WindowDrag => Sense::click_and_drag(),
+            _ => Sense::click(),
         };
         let response = child.interact(control_rect, child.id().with("trigger"), sense);
-        let response = if matches!(action, UiAction::Composer | UiAction::Conversation) {
-            response
-        } else {
+        let button = !matches!(
+            action,
+            UiAction::Composer | UiAction::Conversation | UiAction::WindowDrag
+        );
+        let response = if button {
             response.on_hover_cursor(egui::CursorIcon::PointingHand)
+        } else {
+            response
         };
-        if !matches!(action, UiAction::Composer | UiAction::Conversation) {
+        if button {
             response.widget_info(|| {
                 egui::WidgetInfo::labeled(
                     egui::WidgetType::Button,
@@ -365,7 +393,7 @@ pub fn show_with_values(
                 )
             });
         }
-        if response.has_focus() && !matches!(action, UiAction::Composer | UiAction::Conversation) {
+        if response.has_focus() && button {
             child.painter().rect_stroke(
                 control_rect.shrink(1.),
                 (node.radius * zoom).max(2.),

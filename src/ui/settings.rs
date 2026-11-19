@@ -7,6 +7,7 @@ use super::{Preferences, SettingsPage, theme, win98};
 use crate::app::ReDox;
 use redox::codex;
 use redox::domain::{DEFAULT_MODEL, Mode};
+use redox_studio::native_appearance::NativeAppearanceProperty;
 
 const SETTINGS_PAGES: [(SettingsPage, &str); 9] = [
     (SettingsPage::Account, "Account"),
@@ -96,9 +97,18 @@ impl ReDox {
             self.settings_content(ui, context);
         } else {
             ui.horizontal_top(|ui| {
-                Frame::NONE
-                    .fill(theme::rail())
-                    .stroke(Stroke::new(1.0, theme::border()))
+                let override_color = (self.active_ui.id == "codex")
+                    .then(|| {
+                        super::conversation::appearance::color(
+                            context,
+                            NativeAppearanceProperty::SettingsNavigation,
+                        )
+                    })
+                    .flatten();
+                let fill = override_color.unwrap_or_else(theme::rail);
+                let navigation = Frame::NONE
+                    .fill(fill)
+                    .stroke(Stroke::new(1.0, override_color.unwrap_or_else(theme::border)))
                     .corner_radius(10)
                     .inner_margin(8)
                     .show(ui, |ui| {
@@ -117,6 +127,26 @@ impl ReDox {
                             },
                         );
                     });
+                #[cfg(feature = "design-export")]
+                {
+                    use redox_studio::native_appearance::{NativeRegionId, ThemeColor};
+                    super::design_export::record_native_region(
+                        context,
+                        NativeRegionId::SettingsNavigation,
+                        navigation.response.rect,
+                        ThemeColor::Rail,
+                    );
+                    if self.active_ui.id == "codex" {
+                        super::design_export::record_native_appearance(
+                            context,
+                            NativeAppearanceProperty::SettingsNavigation.id(),
+                            navigation.response.rect,
+                            fill.gamma_multiply(ui.opacity()),
+                        );
+                    }
+                }
+                #[cfg(not(feature = "design-export"))]
+                let _ = navigation;
                 Frame::NONE
                     .inner_margin(Margin::symmetric(10, 4))
                     .show(ui, |ui| {
@@ -223,8 +253,15 @@ impl ReDox {
                     ui.spacing_mut().item_spacing.y = 0.0;
                     let mut selected_tab = None;
                     let labels: [&str; SETTINGS_PAGES.len()] = [
-                        "Account", "Models", "Workspace", "Resources", "Appearance", "Cursors",
-                        "Advanced", "Updates", "About",
+                        "Account",
+                        "Models",
+                        "Workspace",
+                        "Resources",
+                        "Appearance",
+                        "Cursors",
+                        "Advanced",
+                        "Updates",
+                        "About",
                     ];
                     ui.horizontal_wrapped(|ui| {
                         ui.spacing_mut().item_spacing = vec2(1.0, 2.0);

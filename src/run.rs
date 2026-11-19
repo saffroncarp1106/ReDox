@@ -67,6 +67,7 @@ impl Running {
         let (cancel, cancellation) = watch::channel(false);
         let (feedback, feedback_receiver) = mpsc::unbounded_channel();
         let desktop_activity = request.desktop().1.clone();
+        let poll_escape = request.desktop().0.enabled && crate::desktop::SUPPORTED;
         let activity = desktop_activity.clone();
         let stop = cancel.clone();
         let task = runtime.spawn(async move {
@@ -87,7 +88,8 @@ impl Running {
                         .await
                     }
                     Request::Ollama(request) => {
-                        crate::ollama::stream_chat(request, provider_sender, cancellation).await
+                        crate::ollama::stream_qualified_chat(request, provider_sender, cancellation)
+                            .await
                     }
                 }
             });
@@ -99,7 +101,7 @@ impl Running {
                         Some(event) => event,
                         None => break,
                     },
-                    _ = escape_poll.tick() => {
+                    _ = escape_poll.tick(), if poll_escape => {
                         if activity.observe_escape(crate::desktop::escape_pressed()) {
                             let already_cancelled = *stop.borrow();
                             if !already_cancelled { let _ = stop.send(true); }
@@ -244,6 +246,11 @@ pub fn apply_event(session: &mut Session, active: Option<RunId>, event: RunEvent
                 chat.thread_id = Some(thread);
                 chat.desktop_tools = desktop;
                 chat.delegation_tools = delegation;
+                chat.delegation_tool_version = if delegation {
+                    crate::delegation::TOOL_VERSION
+                } else {
+                    0
+                };
             }
             false
         }

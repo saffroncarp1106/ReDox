@@ -24,8 +24,8 @@ mod picker;
 pub(super) mod project_window;
 mod queue;
 mod renderers;
-mod response_text;
 mod resources;
+mod response_text;
 mod scroll;
 mod settings;
 mod shell;
@@ -55,6 +55,7 @@ pub(super) fn request_animation_frame(context: &egui::Context) {
 #[serde(default)]
 pub(super) struct Preferences {
     pub studio_skin: Option<std::path::PathBuf>,
+    pub follow_studio: bool,
     pub hide_update_prompts: bool,
     pub discord_presence: redox::discord_presence::Settings,
     pub codex_mode: bool,
@@ -76,6 +77,7 @@ impl Default for Preferences {
     fn default() -> Self {
         Self {
             studio_skin: None,
+            follow_studio: true,
             hide_update_prompts: false,
             discord_presence: redox::discord_presence::Settings::default(),
             codex_mode: false,
@@ -126,6 +128,9 @@ pub(super) enum SettingsPage {
 
 impl ReDox {
     pub(super) fn draw_ui(&mut self, context: &egui::Context) {
+        use studio::StudioSurface;
+
+        self.sync_studio_link(context);
         let mut palette = self.active_ui.config.colors().unwrap_or_default();
         if let Some(colors) = self.ui_preferences.text_colors.get(&self.active_ui.id) {
             palette = colors.apply(palette);
@@ -135,7 +140,40 @@ impl ReDox {
             self.startup.finish();
         }
 
+        palette = palette.with_native_appearance(
+            &conversation::appearance::current(context),
+            &self.active_ui.id,
+        );
         theme::update_colors(context, palette);
+        if self.ui_preferences.studio_skin.is_some()
+            && context.input(|input| {
+                input.modifiers.ctrl && input.modifiers.shift && input.key_pressed(egui::Key::U)
+            })
+        {
+            self.ui_preferences.studio_skin = None;
+            self.ui_preferences.follow_studio = false;
+        }
+        let studio_surface = self.studio_surface(context);
+        if let Some(surface @ (StudioSurface::Workspace | StudioSurface::Welcome)) = studio_surface {
+            if surface == StudioSurface::Workspace {
+                self.title_bar(context);
+                self.agents_panel(context);
+                if self.sidebar_visible {
+                    self.sidebar(context);
+                }
+            }
+            self.studio_controls(context, surface);
+            self.rename_dialog(context);
+            self.settings(context);
+            self.approval_dialog(context);
+            self.usage_dialog(context);
+            self.window_interactions(context);
+            self.ui_drop_hint(context);
+            self.project_windows(context);
+            self.capture_frame(context);
+            self.update_prompt(context);
+            return;
+        }
         let renderer = renderers::resolve(&self.active_ui.config.layout);
         let windows_desktop = renderer.id == win98::ID;
 
@@ -166,7 +204,9 @@ impl ReDox {
 
         (renderer.conversation)(self, context);
 
-        self.studio_controls(context);
+        if studio_surface == Some(StudioSurface::Preview) {
+            self.studio_controls(context, StudioSurface::Preview);
+        }
         self.rename_dialog(context);
         self.settings(context);
         self.approval_dialog(context);

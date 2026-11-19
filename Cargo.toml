@@ -1,6 +1,6 @@
 [package]
 name = "redox"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2024"
 rust-version = "1.88"
 description = "A native Rust desktop workspace for local coding assistants"
@@ -39,6 +39,7 @@ discord-rich-presence = "=1.1.0"
 [target.'cfg(windows)'.dependencies]
 open = { version = "5", features = ["shellexecute-on-windows"] }
 windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Media_Audio", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_Security", "Win32_System_JobObjects", "Win32_System_SystemInformation", "Win32_System_Threading"] }
+winrt-toast-reborn = "0.3.8"
 
 [build-dependencies]
 winresource = { version = "0.1.34", default-features = false }
@@ -55,6 +56,16 @@ name = "export-designs"
 path = "src/export_designs.rs"
 test = false
 required-features = ["design-export"]
+
+[[bin]]
+name = "redox-studio-native-preview"
+path = "src/studio_native_preview.rs"
+test = false
+required-features = ["design-export"]
+
+[[example]]
+name = "ollama-bench-runner"
+path = "tests/perf/ollama_bench_runner.rs"
 
 [features]
 design-export = []

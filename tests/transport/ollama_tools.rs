@@ -137,10 +137,41 @@ fn absolute_outside_paths_and_symlink_escapes_are_confined_to_full_access() {
 }
 
 #[tokio::test]
+async fn command_timeout_is_validated_and_shown_in_approval() {
+    let root = project();
+    let (sender, mut events) = mpsc::channel(1);
+    for invalid in [json!(0), json!(MAX_COMMAND_TIMEOUT + 1), json!("600")] {
+        let result = execute(
+            "run_command",
+            &json!({"command":"echo LOCAL_COMMAND_OK", "timeout_seconds":invalid}),
+            Some(&root),
+            Mode::Code,
+            &sender,
+        )
+        .await;
+        assert!(result.unwrap_err().contains("timeout_seconds"));
+        assert!(events.try_recv().is_err());
+    }
+
+    let arguments = json!({"command":"echo LOCAL_COMMAND_OK", "timeout_seconds":600});
+    let (result, ()) = tokio::join!(
+        execute("run_command", &arguments, Some(&root), Mode::Code, &sender),
+        async {
+            let Some(ProviderEvent::Approval(approval)) = events.recv().await else {
+                panic!("Expected command approval");
+            };
+            assert!(approval.description.contains("Timeout: 600 seconds."));
+            approval.response.send(true).unwrap();
+        }
+    );
+    assert!(result.unwrap().contains("LOCAL_COMMAND_OK"));
+}
+
+#[tokio::test]
 async fn commands_are_real_and_read_only_tool_definitions_exclude_mutations() {
     let root = project();
     assert!(
-        run_command("echo LOCAL_COMMAND_OK", &root)
+        run_command("echo LOCAL_COMMAND_OK", &root, DEFAULT_COMMAND_TIMEOUT)
             .await
             .unwrap()
             .contains("LOCAL_COMMAND_OK")
@@ -149,4 +180,98 @@ async fn commands_are_real_and_read_only_tool_definitions_exclude_mutations() {
     assert!(read_only.contains("read_file"));
     assert!(!read_only.contains("write_file"));
     assert!(!read_only.contains("run_command"));
+    let available = definitions(Mode::Code).to_string();
+    assert!(available.contains(if cfg!(windows) {
+        "cmd.exe /D /S /C"
+    } else {
+        "/bin/sh -c"
+    }));
+}
+
+#[tokio::test]
+async fn output_capture_drains_large_streams_without_closing_the_writer() {
+    use tokio::io::AsyncWriteExt;
+
+    let (mut writer, reader) = tokio::io::duplex(1024);
+    let payload = vec![b'x'; COMMAND_OUTPUT_LIMIT as usize * 3];
+    let write = async {
+        writer.write_all(&payload).await.unwrap();
+        writer.shutdown().await.unwrap();
+    };
+    let (output, ()) = tokio::time::timeout(Duration::from_secs(5), async {
+        tokio::join!(read_output(reader), write)
+    })
+    .await
+    .expect("large output should drain without a deadlock");
+    let output = output.unwrap();
+    assert!(output.starts_with(&"x".repeat(COMMAND_OUTPUT_LIMIT as usize)));
+    assert!(output.contains("Output truncated after 64 KiB"));
+    assert!(output.len() < COMMAND_OUTPUT_LIMIT as usize + 100);
+}
+
+#[tokio::test]
+async fn output_at_or_below_the_limit_is_preserved_without_a_truncation_notice() {
+    for payload in [
+        Vec::new(),
+        b"hello\n".to_vec(),
+        vec![b'x'; COMMAND_OUTPUT_LIMIT as usize],
+        vec![0xff, b'!'],
+    ] {
+        let output = read_output(payload.as_slice()).await.unwrap();
+        assert_eq!(output, String::from_utf8_lossy(&payload));
+    }
+}
+
+#[tokio::test]
+async fn verbose_commands_finish_with_both_output_streams_bounded() {
+    let root = project().canonicalize().unwrap();
+    #[cfg(windows)]
+    let command = r#"powershell.exe -NoProfile -NonInteractive -Command "$ErrorActionPreference = 'Stop'; $text = 'x' * (192 * 1024); [Console]::Out.Write($text); [Console]::Error.Write($text); Set-Content -LiteralPath finished.txt -Value DONE; exit 0""#;
+    #[cfg(not(windows))]
+    let command = "i=0; while [ $i -lt 4096 ]; do printf 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'; printf 'yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy' >&2; i=$((i+1)); done; printf DONE > finished.txt";
+    let output = run_command(command, &root, DEFAULT_COMMAND_TIMEOUT)
+        .await
+        .unwrap();
+    assert!(
+        output.starts_with("Exit: exit status: 0") || output.starts_with("Exit: exit code: 0"),
+        "{}",
+        &output[..output.len().min(80)]
+    );
+    assert!(
+        root.join("finished.txt").exists(),
+        "command did not finish: {}",
+        &output[..output.len().min(1000)]
+    );
+    assert_eq!(output.matches("Output truncated after 64 KiB").count(), 2);
+    assert!(output.len() < COMMAND_OUTPUT_LIMIT as usize * 2 + 300);
+}
+
+#[cfg(windows)]
+#[tokio::test]
+async fn windows_commands_preserve_quoted_paths_arguments_and_failure_status() {
+    let root = project().canonicalize().unwrap();
+    std::fs::write(
+        root.join("command with spaces.cmd"),
+        "@echo off\r\necho %1\r\nexit /b 7\r\n",
+    )
+    .unwrap();
+    let output = run_command(
+        r#""command with spaces.cmd" "two words & literal""#,
+        &root,
+        DEFAULT_COMMAND_TIMEOUT,
+    )
+    .await
+    .unwrap();
+    assert!(output.starts_with("Exit: exit code: 7"), "{output}");
+    assert!(output.contains("\"two words & literal\""), "{output}");
+    std::fs::write(root.join("text with spaces.txt"), "QUOTED_PATH_CONTENT").unwrap();
+    let output = run_command(
+        r#"type "text with spaces.txt""#,
+        &root,
+        DEFAULT_COMMAND_TIMEOUT,
+    )
+    .await
+    .unwrap();
+    assert!(output.starts_with("Exit: exit code: 0"), "{output}");
+    assert!(output.contains("QUOTED_PATH_CONTENT"), "{output}");
 }

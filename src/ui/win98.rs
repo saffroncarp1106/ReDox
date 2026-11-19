@@ -615,6 +615,12 @@ impl ReDox {
         if root {
             let drag = ui.interact(caption, ui.id().with("win98_drag"), Sense::click_and_drag());
             window_frame::title_drag(context, &drag);
+            #[cfg(feature = "design-export")]
+            super::design_export::record(
+                context,
+                drag.rect,
+                redox_studio::actions::UiAction::WindowDrag,
+            );
             let maximized = context.input(|input| input.viewport().maximized.unwrap_or(false));
             for (index, (tooltip, command)) in [
                 ("Minimize", egui::ViewportCommand::Minimized(true)),
@@ -641,6 +647,10 @@ impl ReDox {
                         Sense::click(),
                     )
                     .on_hover_text(tooltip);
+                #[cfg(feature = "design-export")]
+                if let Some(action) = redox_studio::actions::UiAction::from_label(tooltip) {
+                    super::design_export::record(context, response.rect, action);
+                }
                 caption_control(
                     ui.painter(),
                     bounds,
