@@ -257,7 +257,7 @@ impl ReDox {
                 }
                 ui.add_space(1.0);
                 ui.separator();
-                if rail_button(ui, Icon::Grid, false, "Settings and account").clicked() {
+                if rail_button(ui, Icon::Settings, false, "Settings and account").clicked() {
                     self.settings_open = true;
                 }
 
