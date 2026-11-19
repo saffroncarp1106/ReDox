@@ -38,6 +38,7 @@ pub enum Icon {
     ClaudeMark,
     Stop,
     Check,
+    Plus,
     UsageMark,
 }
 
@@ -110,6 +111,7 @@ impl Icon {
             Self::ClaudeMark => icon_svg!("claude-mark"),
             Self::Stop => icon_svg!("stop"),
             Self::Check => icon_svg!("check"),
+            Self::Plus => icon_svg!("plus"),
             Self::UsageMark => icon_svg!("usage-mark"),
         }
     }

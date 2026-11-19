@@ -189,8 +189,7 @@ impl ReDox {
             if empty {
                 send |= self.claude_draft(ui, context, true);
                 ui.horizontal(|ui| {
-                    ui.spacing_mut().button_padding.y = 2.0;
-                    self.claude_add_menu(ui, context);
+                    self.attachment_menu(ui);
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         if self.active_chat_running()
                             || self.session.active().is_some_and(|chat| {
@@ -247,7 +246,7 @@ impl ReDox {
                     theme::muted(),
                 );
             } else {
-                self.claude_add_menu(ui, context);
+                self.attachment_menu(ui);
                 self.claude_voice_controls(ui, true);
             }
             let spare = (ui.available_width() - 284.0).max(0.0);
@@ -346,21 +345,6 @@ impl ReDox {
                         .iter()
                         .any(|event| matches!(event, egui::Event::Ime(_)))
             })
-    }
-
-    fn claude_add_menu(&mut self, ui: &mut egui::Ui, context: &egui::Context) {
-        ui.menu_button(RichText::new("+").size(22.0).color(theme::text()), |ui| {
-            if ui.button("Add files").clicked() {
-                self.dispatch_ui_action(redox_studio::actions::UiAction::AddFiles, context);
-                ui.close();
-            }
-            if context.viewport_id() == egui::ViewportId::ROOT
-                && ui.button("Open project folder").clicked()
-            {
-                self.dispatch_ui_action(redox_studio::actions::UiAction::OpenProject, context);
-                ui.close();
-            }
-        });
     }
 
     fn claude_send_control(&mut self, ui: &mut egui::Ui) -> bool {

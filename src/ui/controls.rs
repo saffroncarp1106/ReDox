@@ -1,6 +1,9 @@
-use super::theme;
+use super::{
+    icons::{self, Icon},
+    theme,
+};
 use crate::app::ReDox;
-use eframe::egui::{self, Align2, FontId, RichText, Sense, pos2, vec2};
+use eframe::egui::{self, Align2, FontId, RichText, Sense, emath::GuiRounding, pos2, vec2};
 use redox::domain::DEFAULT_MODEL;
 
 pub(super) fn focus_new_prompt(response: &egui::Response, pending: &mut bool, allowed: bool) {
@@ -11,6 +14,70 @@ pub(super) fn focus_new_prompt(response: &egui::Response, pending: &mut bool, al
 }
 
 impl ReDox {
+    pub(super) fn attachment_menu(&mut self, ui: &mut egui::Ui) -> egui::Response {
+        use redox_studio::actions::UiAction;
+
+        let (rect, response) = ui.allocate_exact_size(vec2(28.0, 28.0), Sense::click());
+        response.widget_info(|| {
+            egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), "Add attachments")
+        });
+        let menu = egui::Popup::menu(&response).gap(4.0).show(|ui| {
+            if ui
+                .add_enabled(!self.picking_files, egui::Button::new("Add files"))
+                .clicked()
+            {
+                self.dispatch_ui_action(UiAction::AddFiles, ui.ctx());
+                ui.close();
+            }
+            if ui.ctx().viewport_id() == egui::ViewportId::ROOT
+                && ui.button("Open project folder").clicked()
+            {
+                self.dispatch_ui_action(UiAction::OpenProject, ui.ctx());
+                ui.close();
+            }
+        });
+
+        let rect = rect.round_to_pixels(ui.pixels_per_point());
+        let pressed = menu.is_some() || response.is_pointer_button_down_on();
+        let classic = theme::is_classic(ui);
+        let ink = theme::text();
+        let radius = if classic { 0 } else { 7 };
+        let fill = if classic {
+            theme::sidebar()
+        } else {
+            let highlight = if pressed {
+                0.14
+            } else if response.hovered() {
+                0.08
+            } else {
+                0.0
+            };
+            theme::rail().lerp_to_gamma(ink, highlight)
+        };
+        let border = if response.has_focus() {
+            egui::Stroke::new(1.0, theme::muted())
+        } else if theme::is_wii(ui.ctx()) {
+            egui::Stroke::new(1.0, theme::border())
+        } else {
+            egui::Stroke::NONE
+        };
+        ui.painter()
+            .rect(rect, radius, fill, border, egui::StrokeKind::Inside);
+        let mut glyph = rect.shrink(5.0);
+        if classic {
+            super::win98::bevel(ui.painter(), rect, pressed);
+            if pressed {
+                glyph = glyph.translate(vec2(1.0, 1.0));
+            }
+        }
+        icons::paint(ui.painter(), glyph, Icon::Plus, ink);
+        if menu.is_none() {
+            response.on_hover_text("Add attachments")
+        } else {
+            response
+        }
+    }
+
     pub(in crate::app) fn model_effort_picker(&mut self, ui: &mut egui::Ui, id: &str) {
         let classic = theme::is_classic(ui);
         let local = self.is_ollama();

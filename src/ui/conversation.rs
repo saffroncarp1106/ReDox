@@ -356,30 +356,7 @@ impl ReDox {
                                 ui.spacing_mut().interact_size.y = 28.0;
                                 ui.spacing_mut().button_padding.y = 0.0;
                             }
-                            ui.menu_button(RichText::new("+").size(23.0), |ui| {
-                                if ui
-                                    .add_enabled(
-                                        !self.picking_files,
-                                        egui::Button::new("Add files"),
-                                    )
-                                    .clicked()
-                                {
-                                    self.dispatch_ui_action(
-                                        redox_studio::actions::UiAction::AddFiles,
-                                        context,
-                                    );
-                                    ui.close();
-                                }
-                                if context.viewport_id() == egui::ViewportId::ROOT
-                                    && ui.button("Open project folder").clicked()
-                                {
-                                    self.dispatch_ui_action(
-                                        redox_studio::actions::UiAction::OpenProject,
-                                        context,
-                                    );
-                                    ui.close();
-                                }
-                            });
+                            self.attachment_menu(ui);
                             if let Some(chat) = self.session.active_mut()
                                 && chat.workspace.is_some()
                             {

@@ -1,5 +1,7 @@
 use super::*;
+use egui::accesskit::{Action, ActionRequest};
 use egui::{Event, Key, Modifiers, PointerButton, Pos2, Shape};
+use redox_studio::scenes::{SceneId, THEMES};
 
 fn frame(
     context: &egui::Context,
@@ -110,6 +112,41 @@ fn usage_meter_shows_remaining_quota_and_opens_details() {
     usage_frame(&ctx, &mut app, vec![button(pos, true)]);
     usage_frame(&ctx, &mut app, vec![button(pos, false)]);
     assert!(app.usage_open);
+}
+
+#[test]
+fn square_attachment_button_opens_its_menu_in_every_theme() {
+    for theme in THEMES {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let mut app = ReDox::design_preview(&ctx, theme);
+        app.prepare_design_scene(SceneId::Welcome);
+        let mut render = |events| frame(&ctx, events, |ctx| app.render_design(ctx));
+        render(vec![]);
+        let output = render(vec![]);
+        let (id, node) = output
+            .platform_output
+            .accesskit_update
+            .unwrap()
+            .nodes
+            .into_iter()
+            .find(|(_, node)| node.label() == Some("Add attachments"))
+            .unwrap_or_else(|| panic!("missing attachment button in {theme}"));
+        let bounds = node.bounds().unwrap();
+        assert_eq!((bounds.width(), bounds.height()), (28.0, 28.0), "{theme}");
+
+        render(vec![Event::AccessKitActionRequest(ActionRequest {
+            action: Action::Click,
+            target: id,
+            data: None,
+        })]);
+        render(vec![]);
+        let menu = render(vec![]);
+        assert!(has_text(&menu, "Add files"), "{theme}");
+        assert!(has_text(&menu, "Open project folder"), "{theme}");
+        render(vec![key(Key::Escape)]);
+        assert!(!has_text(&render(vec![]), "Add files"), "{theme}");
+    }
 }
 
 #[test]

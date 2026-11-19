@@ -185,24 +185,7 @@ impl ReDox {
             .inner_margin(Margin::symmetric(16, 6))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    ui.menu_button(RichText::new("+").size(27.0), |ui| {
-                        if ui.button("Add files").clicked() {
-                            self.dispatch_ui_action(
-                                redox_studio::actions::UiAction::AddFiles,
-                                context,
-                            );
-                            ui.close();
-                        }
-                        if context.viewport_id() == egui::ViewportId::ROOT
-                            && ui.button("Open project folder").clicked()
-                        {
-                            self.dispatch_ui_action(
-                                redox_studio::actions::UiAction::OpenProject,
-                                context,
-                            );
-                            ui.close();
-                        }
-                    });
+                    self.attachment_menu(ui);
                     let width = (ui.available_width() - 44.0).max(140.0);
                     if let Some(chat) = self.session.active_mut() {
                         ui.add_enabled_ui(!chat.archived, |ui| {
