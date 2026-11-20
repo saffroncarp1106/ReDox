@@ -1,0 +1,24 @@
+Write the complete Rust 2021 source for the module solution.rs. Use the standard library and implement the behavior below. Preserve the public interface exactly. Return plain Rust or a single Rust code fence. The benchmark supplies main.rs.
+
+Build a parser that produces an abstract syntax tree for boolean filters.
+
+pub enum Expr {
+    Identifier(String),
+    Not(Box<Expr>),
+    And(Box<Expr>, Box<Expr>),
+    Or(Box<Expr>, Box<Expr>),
+}
+pub struct ParseError {
+    pub offset: usize,
+    pub message: String,
+}
+pub fn parse_filter(input: &str) -> Result<Expr, ParseError>
+
+The syntax supports ASCII identifiers starting with a letter or underscore,
+followed by letters, digits, or underscores, as well as !, &&, ||, and
+parentheses. Ignore ASCII whitespace. Precedence from highest to lowest is
+parentheses, prefix !, &&, then ||. Binary operators associate left. Repeated
+unary ! is valid. Consume the entire input and reject trailing tokens, missing
+operands, and mismatched parentheses. Report the UTF-8 byte position of the
+first unexpected token or character. At end of input use input.len(). Include
+a nonempty error message.
