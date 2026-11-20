@@ -85,47 +85,13 @@ The integration uses Ollama's native [model list](https://docs.ollama.com/api/ta
 
 If Ollama reports a CUDA/GPU initialization failure, open **Model & tool options** in Agents, enable **CPU only (GPU troubleshooting)**, and retry. This sets `num_gpu: 0` for the request. CPU generation can be slower.
 
-### Ollama endurance benchmark
-
-Open `tests\perf\Stress Ollama Agent.cmd`, pick an installed model, and click **Start benchmark**. The window opens idle. The command builds its verification runner and uses Python 3.10 or newer with Tkinter. The default is `tiel-coder:35b-a3b-mtp-ud-iq4-xs` at `http://127.0.0.1:11434` with a requested 64,000-token context. The benchmark scores reasoning, code-tracing, memory, and read-only fixture tasks through ReDox's Ollama transport in one chat.
-
-During a run, pick another model and choose **Switch after task** to apply it at the next round. The chat keeps its history and overall score. The window shows the active model, any queued switch, and the current model's score. `benchmark.jsonl` records the model used for each task alongside its result, in the same folder as `steps.md`.
-
-The benchmark keeps going until **Stop** in the window, **Ctrl+C** in terminal mode, or a task exceeds the watchdog deadline, which defaults to 900 seconds. After a run ends in the window, pick a model and click **Start benchmark** again to begin a fresh chat and score. Wrong answers are scored and the run continues. The progress view shows generated tokens, token rate, and context rollovers.
-
-The reasoning and tools suite reports **True** scores with the original JSON fence requirement and **Ex. JSON** scores that also accept valid bare JSON. Both validate exact answer values and the required file read. The log stores them as `passed` and `passed_ex_json`.
-
-The score display shows total task time in seconds. Each logged task adds its `elapsed` time, including tool calls and Cargo builds. In `benchmark.jsonl`, the final row's `total_task_seconds` gives the run total. For a run with model switches, use the final `model_total_task_seconds` row for each model to get its separate total.
-
-This PowerShell command runs seven tasks in the terminal.
-
-```powershell
-& '.\tests\perf\Stress Ollama Agent.cmd' --rounds 7
-```
-
-Use `--watchdog 180` for a shorter per-task deadline, `--context 4096` to reach rollovers sooner, or `--model` and `--endpoint` for another Ollama configuration. Add `--gui` to open the window when passing options.
-
-To run an ordered comparison, choose a model, suite, and **Tasks per batch**, then click **Add batch** for each entry. For example, add 25 Reasoning and tools tasks for each model, then 5 Rust Build tasks for each model. Choose one **Context tokens** value and click **Start queue**. Each batch reports its own score and results file.
-
-With **Keep each model’s chat and request warm weights between batches** checked, the queue resumes that model’s chat on later entries and asks Ollama to keep it loaded. Ollama may still unload a model to make room for another. Clear the checkbox for a fresh chat and cold start in each batch. [Ollama model residency](https://docs.ollama.com/faq#how-does-ollama-handle-concurrent-requests)
-
-#### Rust Build benchmark
-
-Choose **Rust Build** in the benchmark window before starting, or pass `--suite rust` in the terminal. The suite rotates through a dependency scheduler, a transaction ledger, and a filter-expression parser. The model submits Rust source using the standard library. ReDox supplies a small Cargo crate and a driver that references the required public interface, then runs `cargo build --offline`.
-
-A successful Cargo build passes. The benchmark records compiler diagnostics and build time separately from generation time. It checks compilation and public interfaces. The generated executable stays in the Cargo target directory for inspection. A build that exceeds `--build-timeout` is recorded as inconclusive and excluded from the scored total. The default build deadline is 180 seconds, and the default generation allowance for this suite is 4,096 tokens.
-
-```powershell
-& '.\tests\perf\Stress Ollama Agent.cmd' --suite rust --rounds 3
-```
-
-#### Qwen 3.6 Rust profile
+### Qwen 3.6 Rust profile
 
 Create `Aisnley-Ox-1-bbb:35b` on the Ollama server where `qwen3.6:35b` is installed. The profile reuses the stock model weights and adds a Rust system prompt and [Qwen's coding sampling preset](https://huggingface.co/Qwen/Qwen3.6-35B-A3B). ReDox enables thinking for this profile and requests a direct answer if reasoning reaches the response limit before any answer is produced. Select the model in Agents and set **Model & tool options > Response limit** to 16,000 for longer implementations at a 64,000-token context. Thinking counts toward the response limit. ReDox reserves up to one quarter of the context for generation.
 
 The qualified Ollama service runs Aisnley-Ox-1-bbb's startup sequence for any client connected to it. It holds the first inference or model preload request until one attempt scores 10/10 on strict Reasoning and Tools tasks and compiles the Rust filter-expression parser with local Cargo. On a failed task it unloads the model and starts again. It preserves the passing transcript for inference, checks residency on subsequent requests, and qualifies again after observing an unload or a change in loading settings. Native Ollama requests renew a 15-minute keep-alive. The OpenAI-compatible endpoints use the profile's 64,000-token context.
 
-Start the qualified endpoint from the project folder while Ollama is running on its normal port. ReDox's default connection and the stress benchmark discover it locally. The benchmark starts its own local endpoint when needed and closes it on exit. Other clients should use `http://127.0.0.1:11435` as their Ollama server or `http://127.0.0.1:11435/v1` as their OpenAI base URL. Clients pointed directly at Ollama's upstream port `11434` use that upstream's behavior. The benchmark waits for qualification before timing each scored task. The service console shows each qualification stage. Press Ctrl+C in the standalone service console to stop it.
+Start the qualified endpoint from the project folder while Ollama is running on its normal port. ReDox's default connection discovers it locally. Other clients should use `http://127.0.0.1:11435` as their Ollama server or `http://127.0.0.1:11435/v1` as their OpenAI base URL. Clients pointed directly at Ollama's upstream port `11434` use that upstream's behavior. The service console shows each qualification stage. Press Ctrl+C in the standalone service console to stop it.
 
 ```powershell
 & '.\Launch ReDox.cmd' --qualified-ollama
@@ -140,10 +106,7 @@ ollama run Aisnley-Ox-1-bbb:35b
 
 ```powershell
 ollama create Aisnley-Ox-1-bbb:35b -f docs/ollama/Qwen36Rust.Modelfile
-& '.\tests\perf\Stress Ollama Agent.cmd' --model Aisnley-Ox-1-bbb:35b --suite rust --rounds 3 --context 64000 --output 16000 --watchdog 1500
 ```
-
-Add `--gui` to the benchmark command to open the model picker and start the run from the window.
 
 ## Cursor animation
 
@@ -213,14 +176,6 @@ Standalone Discord presence test: with Discord desktop running, use `cargo run -
 In Settings > About, select Enable Presence and customize Details (first line) and State (second line). Changes save automatically, including whether presence is enabled, and publish after a short typing pause. Presence is disabled by default. Blank fields fall back to ReDox / Vibing; each field supports up to 128 characters. The displayed app name is controlled by the registered Discord application.
 
 Discord desktop must be running and signed in. ReDox connects locally using its public Application ID without a bot token or account login. The worker retries unavailable connections every 15 seconds. Disable Presence clears the activity; shutdown attempts to clear it without blocking app exit indefinitely. Only your custom text and elapsed session time are sent, not chat text or project paths. The About page shows connection status. The standalone presence-test program is separate; exit it before testing the integrated presence with the same Application ID.
-
-## Export the existing UIs into Studio
-
-From this directory, run `cargo run --locked --features design-export --bin export-designs`. This uses Redox's actual renderers in an offscreen session at 1100 × 900 to export welcome, conversation and eight Settings scenes for each of the five themes into `../ReCreation/skins/redox/scenes/`, plus the five main originals. It skips model transport and stored account/history. Set `REDOX_EXPORT_REVIEW=1` to also generate PNGs under `target/design-review`. Rebuild Studio after refreshing embedded main templates.
-
-The generated files preserve source geometry and font artwork. Studio can edit the resulting layers, while live application behavior and responsive layout remain in ReDox's renderers.
-
-The debug and release launchers also build `redox-studio-native-preview.exe` beside ReDox. Studio can call it with `<theme> <scene> <width> <height> <absolute-output.redoxskin>` to capture the current renderer at a requested viewport. It runs offscreen with dummy account and chat data and does not start model transport.
 
 ## Wii interface (v0.2.0)
 

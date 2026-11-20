@@ -51,21 +51,5 @@ debug = "line-tables-only"
 lto = "thin"
 strip = true
 
-[[bin]]
-name = "export-designs"
-path = "src/export_designs.rs"
-test = false
-required-features = ["design-export"]
-
-[[bin]]
-name = "redox-studio-native-preview"
-path = "src/studio_native_preview.rs"
-test = false
-required-features = ["design-export"]
-
-[[example]]
-name = "ollama-bench-runner"
-path = "tests/perf/ollama_bench_runner.rs"
-
 [features]
 design-export = []
