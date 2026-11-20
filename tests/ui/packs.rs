@@ -19,6 +19,13 @@ fn builtins_and_new_configs_are_discovered() {
     assert!(catalog.packs.iter().any(|pack| pack.id == "gemini"));
     assert!(catalog.packs.iter().any(|pack| pack.id == "claude"));
     assert!(catalog.packs.iter().any(|pack| pack.id == "win98"));
+    let dark = catalog
+        .packs
+        .iter()
+        .find(|pack| pack.id == "win98-dark")
+        .unwrap();
+    assert_eq!(dark.config.layout, "win98");
+    assert!(dark.config.colors().unwrap().high_contrast);
     assert!(catalog.packs.iter().any(|pack| pack.config.name == "Ocean"));
 }
 
@@ -61,10 +68,10 @@ fn arbitrary_names_and_layouts_survive_import_and_discovery() {
 fn imports_cannot_shadow_embedded_layouts() {
     let source = directory().join("ui.json");
     let destination = directory();
-    for renderer in super::super::renderers::RENDERERS {
-        std::fs::write(&source, renderer.config).unwrap();
+    for (builtin, config) in builtin_configs() {
+        std::fs::write(&source, config).unwrap();
         let id = install(&source, &destination).unwrap();
-        assert_ne!(id, renderer.id);
+        assert_ne!(id, builtin);
     }
 }
 

@@ -512,7 +512,12 @@ impl ReDox {
             if chats.is_empty() {
                 ui.horizontal(|ui| {
                     ui.add_space(32.0);
-                    ui.label(RichText::new("No chats").color(Color32::from_gray(92)));
+                        let label = if win98::high_contrast() {
+                            muted()
+                        } else {
+                            Color32::from_gray(92)
+                        };
+                        ui.label(RichText::new("No chats").color(label));
                 });
             }
             self.chat_rows(ui, &chats, 32.0);
@@ -846,7 +851,9 @@ fn sidebar_row(
             rect,
             if classic { 0 } else { 10 },
             if classic && selected {
-                win98::NAVY
+                win98::selected_fill()
+            } else if classic && win98::high_contrast() {
+                theme::surface()
             } else if classic {
                 Color32::from_rgb(219, 232, 248)
             } else if selected {

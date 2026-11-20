@@ -39,6 +39,7 @@ mod updates;
 mod usage;
 pub(super) mod wii;
 mod win98;
+mod win98_terminal;
 mod window_frame;
 
 pub(super) const PREFERENCES_KEY: &str = "redox.ui.v1";
@@ -72,6 +73,8 @@ pub(super) struct Preferences {
     pub agent_task: String,
     pub floating_windows: bool,
     pub win98_unlocked: bool,
+    pub win98_terminal_zoom: u8,
+    win98_terminal_appearance: win98_terminal::Appearance,
     pub wii: wii::Settings,
 }
 
@@ -94,6 +97,8 @@ impl Default for Preferences {
             agent_task: String::new(),
             floating_windows: true,
             win98_unlocked: false,
+            win98_terminal_zoom: 100,
+            win98_terminal_appearance: Default::default(),
             wii: wii::Settings::default(),
         }
     }
@@ -101,7 +106,10 @@ impl Default for Preferences {
 
 impl Preferences {
     pub fn normalize(&mut self) {
-        self.win98_unlocked |= self.ui == win98::ID || self.sidebars.contains_key(win98::ID);
+        self.win98_unlocked |= win98::is_builtin(&self.ui)
+            || [win98::ID, win98::DARK_ID]
+                .iter()
+                .any(|id| self.sidebars.contains_key(*id));
         self.zoom = if self.zoom.is_finite() {
             self.zoom.clamp(0.8, 1.5)
         } else {
@@ -110,7 +118,7 @@ impl Preferences {
     }
 
     pub fn shows_ui(&self, id: &str) -> bool {
-        id != win98::ID || self.win98_unlocked
+        !win98::is_builtin(id) || self.win98_unlocked
     }
 }
 
@@ -159,6 +167,17 @@ impl ReDox {
             self.ui_preferences.follow_studio = false;
         }
         let studio_surface = self.studio_surface(context);
+        let renderer = renderers::resolve(&self.active_ui.config.layout);
+        let windows_desktop = renderer.id == win98::ID;
+        let terminal_fullscreen = win98_terminal::fullscreen_for_frame(
+            self,
+            context,
+            windows_desktop
+                && !matches!(
+                    studio_surface,
+                    Some(StudioSurface::Workspace | StudioSurface::Welcome)
+                ),
+        );
         if let Some(surface @ (StudioSurface::Workspace | StudioSurface::Welcome)) = studio_surface {
             if surface == StudioSurface::Workspace {
                 self.title_bar(context);
@@ -179,37 +198,42 @@ impl ReDox {
             self.update_prompt(context);
             return;
         }
-        let renderer = renderers::resolve(&self.active_ui.config.layout);
-        let windows_desktop = renderer.id == win98::ID;
-
-        if windows_desktop {
-            self.win98_title_bar(context);
-            self.win98_taskbar(context);
-        } else if renderer.id == wii::ID {
-            self.wii_title_bar(context);
+        if terminal_fullscreen {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE.fill(egui::Color32::BLACK))
+                .show(context, |ui| {
+                    win98_terminal::show(ui, ui.available_rect_before_wrap(), self);
+                });
         } else {
-            self.title_bar(context);
+            if windows_desktop {
+                self.win98_title_bar(context);
+                self.win98_taskbar(context);
+            } else if renderer.id == wii::ID {
+                self.wii_title_bar(context);
+            } else {
+                self.title_bar(context);
+            }
+
+            if renderer.id == wii::ID {
+                (renderer.rail)(self, context);
+            }
+            self.agents_panel(context);
+            if !windows_desktop && renderer.id != wii::ID {
+                (renderer.rail)(self, context);
+            }
+            if self.sidebar_visible
+                && (!self.ui_preferences.agents_open || context.viewport_rect().width() >= 1280.0)
+            {
+                self.sidebar(context);
+            }
+            if windows_desktop {
+                (renderer.rail)(self, context);
+            }
+
+            (renderer.conversation)(self, context);
         }
 
-        if renderer.id == wii::ID {
-            (renderer.rail)(self, context);
-        }
-        self.agents_panel(context);
-        if !windows_desktop && renderer.id != wii::ID {
-            (renderer.rail)(self, context);
-        }
-        if self.sidebar_visible
-            && (!self.ui_preferences.agents_open || context.viewport_rect().width() >= 1280.0)
-        {
-            self.sidebar(context);
-        }
-        if windows_desktop {
-            (renderer.rail)(self, context);
-        }
-
-        (renderer.conversation)(self, context);
-
-        if studio_surface == Some(StudioSurface::Preview) {
+        if !terminal_fullscreen && studio_surface == Some(StudioSurface::Preview) {
             self.studio_controls(context, StudioSurface::Preview);
         }
         self.rename_dialog(context);
@@ -217,7 +241,9 @@ impl ReDox {
         self.approval_dialog(context);
         self.usage_dialog(context);
 
-        self.window_interactions(context);
+        if !terminal_fullscreen {
+            self.window_interactions(context);
+        }
         self.startup.draw(
             context,
             if windows_desktop {

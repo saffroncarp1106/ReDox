@@ -3,7 +3,6 @@ use eframe::egui::{self, Color32, Id, Rect, Sense, Stroke, Ui, Vec2, pos2};
 use super::icons::{icon_svg, paint_svg};
 
 const WIDTH: f32 = 17.0;
-const SILVER: Color32 = Color32::from_gray(192);
 
 pub(super) struct ScrollArea {
     area: egui::ScrollArea,
@@ -213,7 +212,8 @@ fn geometry(
 
 fn paint_track(ui: &Ui, rect: Rect) {
     let painter = ui.painter().with_clip_rect(ui.clip_rect().intersect(rect));
-    painter.rect_filled(rect, 0, Color32::WHITE);
+    painter.rect_filled(rect, 0, super::win98::pane_fill());
+    let dither = super::win98::control_face();
     let mut mesh = egui::Mesh::default();
     let pixels = ui.ctx().pixels_per_point();
     let left = (rect.left() * pixels).floor() as i32;
@@ -228,7 +228,7 @@ fn paint_track(ui: &Ui, rect: Rect) {
                         pos2(x as f32 / pixels, y as f32 / pixels),
                         Vec2::splat(1.0 / pixels),
                     ),
-                    SILVER,
+                    dither,
                 );
             }
         }
@@ -237,7 +237,8 @@ fn paint_track(ui: &Ui, rect: Rect) {
 }
 
 fn paint_button(ui: &Ui, rect: Rect, pressed: bool) {
-    ui.painter().rect_filled(rect, 0, SILVER);
+    ui.painter()
+        .rect_filled(rect, 0, super::win98::control_face());
     super::win98::bevel(ui.painter(), rect, pressed);
     if !pressed {
         let inner = rect.shrink(1.5);
@@ -262,7 +263,11 @@ fn paint_arrow(ui: &Ui, rect: Rect, axis: usize, direction: f32, pressed: bool, 
         (_, false) => icon_svg!("classic-arrow-up"),
         (_, true) => icon_svg!("classic-arrow-down"),
     };
-    let tint = if enabled { Color32::BLACK } else { Color32::GRAY };
+    let tint = if enabled {
+        super::win98::control_ink()
+    } else {
+        Color32::GRAY
+    };
     let bounds = Rect::from_center_size(center, Vec2::splat(7.0_f32.min(rect.size().min_elem())));
     paint_svg(ui.painter(), bounds, source, tint);
 }

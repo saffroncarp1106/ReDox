@@ -35,6 +35,7 @@ pub struct Config {
     pub glow: String,
     pub glow_strength: f32,
     pub sidebar_default: bool,
+    pub high_contrast: bool,
     pub background_image: Option<String>,
     pub background_opacity: f32,
 }
@@ -51,6 +52,7 @@ impl Default for Config {
             glow: "#223C9D".into(),
             glow_strength: 0.6,
             sidebar_default: true,
+            high_contrast: false,
             background_image: None,
             background_opacity: 1.0,
         }
@@ -127,7 +129,10 @@ impl Config {
     }
 
     pub fn colors(&self) -> Result<theme::Palette, String> {
-        let mut palette = theme::Palette::default();
+        let mut palette = theme::Palette {
+            high_contrast: self.layout == super::win98::ID && self.high_contrast,
+            ..Default::default()
+        };
         for (value, target) in [
             (&self.palette.background, &mut palette.background),
             (&self.palette.sidebar, &mut palette.sidebar),
@@ -191,14 +196,23 @@ pub fn read(path: &Path) -> Result<Config, String> {
     Ok(config)
 }
 
+fn builtin_configs() -> impl Iterator<Item = (&'static str, &'static str)> {
+    super::renderers::RENDERERS
+        .iter()
+        .map(|renderer| (renderer.id, renderer.config))
+        .chain([(
+            super::win98::DARK_ID,
+            include_str!("layouts/win98-dark.json"),
+        )])
+}
+
 pub fn discover(directory: &Path) -> Catalog {
     let mut packs = Vec::new();
     let mut errors = Vec::new();
-    for renderer in super::renderers::RENDERERS {
-        let id = renderer.id;
+    for (id, config) in builtin_configs() {
         packs.push(Pack {
             id: id.into(),
-            config: serde_json::from_str(renderer.config).expect("Built-in UI config"),
+            config: serde_json::from_str(config).expect("Built-in UI config"),
             path: directory.join(format!("{id}.json")),
         });
     }
@@ -308,9 +322,7 @@ pub fn save(config: &Config, image: Option<&Path>, directory: &Path) -> Result<S
     let mut suffix = 1;
     while directory.join(&id).exists()
         || directory.join(format!("{id}.json")).exists()
-        || super::renderers::RENDERERS
-            .iter()
-            .any(|renderer| renderer.id == id)
+        || builtin_configs().any(|(builtin, _)| builtin == id)
     {
         id = format!("{slug}-{suffix}");
         suffix += 1;

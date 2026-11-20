@@ -5,6 +5,7 @@ fn fifth_logo_click_unlocks_win98_and_survives_restart() {
     let mut preferences = Preferences::default();
     let mut about = About::default();
     assert!(!preferences.shows_ui(win98::ID));
+    assert!(!preferences.shows_ui(win98::DARK_ID));
     assert!(preferences.shows_ui("codex"));
     for _ in 0..4 {
         about.click_logo(&mut preferences);
@@ -13,6 +14,7 @@ fn fifth_logo_click_unlocks_win98_and_survives_restart() {
     }
     about.click_logo(&mut preferences);
     assert!(preferences.shows_ui(win98::ID));
+    assert!(preferences.shows_ui(win98::DARK_ID));
     assert!(about.show_notice);
     assert_eq!(preferences.ui, "codex");
 
@@ -27,10 +29,16 @@ fn fifth_logo_click_unlocks_win98_and_survives_restart() {
 
 #[test]
 fn previously_selected_win98_stays_available() {
-    for saved in [r#"{"ui":"win98"}"#, r#"{"sidebars":{"win98":false}}"#] {
+    for saved in [
+        r#"{"ui":"win98"}"#,
+        r#"{"sidebars":{"win98":false}}"#,
+        r#"{"ui":"win98-dark"}"#,
+        r#"{"sidebars":{"win98-dark":false}}"#,
+    ] {
         let mut preferences: Preferences = serde_json::from_str(saved).unwrap();
         preferences.normalize();
         assert!(preferences.shows_ui(win98::ID));
+        assert!(preferences.shows_ui(win98::DARK_ID));
     }
 }
 

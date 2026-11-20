@@ -154,7 +154,7 @@ fn unlock_notice(context: &egui::Context) -> bool {
                         paint_svg(ui.painter(), rect, icon_svg!("classic-error"), Color32::WHITE);
                         ui.add_space(6.0);
                         ui.add(egui::Label::new(
-                            "Windows 98 unlocked. Choose it from the UI menu whenever you want.",
+                            "Windows 98 unlocked. Choose Windows 98 or Windows 98 Dark from the UI menu.",
                         ).wrap());
                     });
                     ui.add_space(12.0);

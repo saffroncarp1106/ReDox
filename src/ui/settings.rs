@@ -273,7 +273,7 @@ impl ReDox {
                                         .fill(if selected {
                                             theme::sidebar()
                                         } else {
-                                            Color32::from_gray(176)
+                                            win98::inactive_tab()
                                         })
                                         .min_size(vec2(0.0, 24.0)),
                                 )

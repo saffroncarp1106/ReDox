@@ -328,11 +328,13 @@ impl ReDox {
                             super::controls::focus_new_prompt(
                                 &response,
                                 &mut self.focus_prompt,
-                                !self.startup.is_active()
+                                response.enabled()
+                                    && !self.startup.is_active()
                                     && !self.settings_open
                                     && !self.rename_open,
                             );
-                            if response.has_focus()
+                            if response.enabled()
+                                && response.has_focus()
                                 && context.input(|input| {
                                     input.key_pressed(egui::Key::Enter)
                                         && !input.modifiers.shift
@@ -578,7 +580,9 @@ fn render_message(
         let bubble_width = ui.available_width() * 0.72;
         ui.with_layout(Layout::top_down(Align::Max), |ui| {
             Frame::new()
-                .fill(if !ui.visuals().dark_mode {
+                .fill(if classic && super::win98::high_contrast() {
+                    theme::surface()
+                } else if !ui.visuals().dark_mode {
                     Color32::from_rgb(218, 231, 247)
                 } else {
                     Color32::from_rgb(25, 62, 116)

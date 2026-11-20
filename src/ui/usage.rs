@@ -196,7 +196,7 @@ impl ReDox {
                         .fill(if about == value {
                             theme::sidebar()
                         } else {
-                            Color32::from_gray(176)
+                            super::win98::inactive_tab()
                         })
                         .min_size(vec2(74.0, 24.0)),
                 );

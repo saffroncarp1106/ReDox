@@ -3,6 +3,7 @@ use redox_studio::native_appearance::{NativeAppearance, ThemeColor};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Palette {
+    pub(super) high_contrast: bool,
     pub background: egui::Color32,
     pub sidebar: egui::Color32,
     pub rail: egui::Color32,
@@ -17,6 +18,7 @@ pub struct Palette {
 impl Default for Palette {
     fn default() -> Self {
         Self {
+            high_contrast: false,
             background: egui::Color32::from_rgb(24, 24, 24),
             sidebar: egui::Color32::from_rgb(27, 27, 27),
             rail: egui::Color32::from_rgb(33, 33, 33),
@@ -342,6 +344,7 @@ pub fn apply(ctx: &egui::Context, layout: &str) {
         .join("Fonts");
 
     let (regular, bold) = if classic {
+        super::win98_terminal::register_font(&mut fonts);
         ("tahoma.ttf", "tahomabd.ttf")
     } else {
         ("segoeui.ttf", "seguisb.ttf")

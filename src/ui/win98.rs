@@ -10,14 +10,65 @@ use super::{
 use crate::app::ReDox;
 
 pub(super) const ID: &str = "win98";
+pub(super) const DARK_ID: &str = "win98-dark";
 pub(super) const HEADER_HEIGHT: f32 = 46.0;
 pub(super) const NAVY: Color32 = Color32::from_rgb(0, 0, 128);
 const SILVER: Color32 = Color32::from_gray(192);
 const WHITE: Color32 = Color32::WHITE;
 const BLACK: Color32 = Color32::BLACK;
 
+pub(super) fn is_builtin(id: &str) -> bool {
+    matches!(id, ID | DARK_ID)
+}
+
+pub(super) fn high_contrast() -> bool {
+    theme::palette().high_contrast
+}
+
+pub(super) fn control_face() -> Color32 {
+    if high_contrast() {
+        theme::rail()
+    } else {
+        SILVER
+    }
+}
+
+pub(super) fn control_ink() -> Color32 {
+    if high_contrast() {
+        theme::text()
+    } else {
+        BLACK
+    }
+}
+
+pub(super) fn pane_fill() -> Color32 {
+    if high_contrast() {
+        theme::input_background()
+    } else {
+        WHITE
+    }
+}
+
+pub(super) fn inactive_tab() -> Color32 {
+    if high_contrast() {
+        theme::surface()
+    } else {
+        Color32::from_gray(176)
+    }
+}
+
+pub(super) fn selected_fill() -> Color32 {
+    if high_contrast() {
+        Color32::from_gray(59)
+    } else {
+        NAVY
+    }
+}
+
 #[derive(Clone, Copy)]
 enum Shortcut {
+    Chat,
+    Terminal,
     Chats,
     Project,
     Agents,
@@ -30,10 +81,13 @@ const SHORTCUTS: [Shortcut; 4] = [
     Shortcut::Agents,
     Shortcut::Settings,
 ];
+const WINDOWS: [Shortcut; 2] = [Shortcut::Chat, Shortcut::Terminal];
 
 impl Shortcut {
     fn label(self) -> &'static str {
         match self {
+            Self::Chat => "Chat",
+            Self::Terminal => "Terminal",
             Self::Chats => "My Chats",
             Self::Project => "Open Project",
             Self::Agents => "Ollama Agents",
@@ -42,34 +96,66 @@ impl Shortcut {
     }
 
     fn activate(self, app: &mut ReDox, context: &egui::Context) {
-        app.dispatch_ui_action(self.action(), context);
+        match self {
+            Self::Chat => app.focus_win98_prompt(context),
+            Self::Terminal => {
+                super::win98_terminal::set_open(context, true);
+                app.focus_prompt = true;
+            }
+            _ => {
+                if let Some(action) = self.action() {
+                    app.dispatch_ui_action(action, context);
+                }
+            }
+        }
     }
 
-    fn action(self) -> redox_studio::actions::UiAction {
+    fn action(self) -> Option<redox_studio::actions::UiAction> {
         use redox_studio::actions::UiAction;
-        match self {
+        Some(match self {
+            Self::Chat | Self::Terminal => return None,
             Self::Chats => UiAction::Sidebar,
             Self::Project => UiAction::OpenProject,
             Self::Agents => UiAction::OllamaAgent,
             Self::Settings => UiAction::Settings,
-        }
+        })
     }
 
     fn paint(self, ui: &Ui, origin: Pos2) {
+        let bounds = Rect::from_min_size(origin, vec2(32.0, 32.0));
         let source = match self {
+            Self::Chat => icon_svg!("chat"),
+            Self::Terminal => {
+                let screen = bounds.shrink2(vec2(1.0, 4.0));
+                ui.painter().rect_filled(screen, 0, control_face());
+                bevel(ui.painter(), screen, false);
+                ui.painter().rect_filled(screen.shrink(3.0), 0, BLACK);
+                ui.painter().text(
+                    screen.left_top() + vec2(6.0, 4.0),
+                    egui::Align2::LEFT_TOP,
+                    ">_",
+                    egui::FontId::monospace(12.0),
+                    WHITE,
+                );
+                return;
+            }
             Self::Chats => icon_svg!("classic-chats"),
             Self::Project => icon_svg!("classic-project"),
             Self::Agents => icon_svg!("classic-agents"),
             Self::Settings => icon_svg!("classic-settings"),
         };
-        let bounds = Rect::from_min_size(origin, vec2(32.0, 32.0));
         paint_svg(ui.painter(), bounds, source, WHITE);
     }
 }
 
 pub(super) fn apply_style(context: &egui::Context) {
     theme::set_controls(context, theme::Controls::Classic);
-    let mut visuals = egui::Visuals::light();
+    let dark = high_contrast();
+    let mut visuals = if dark {
+        egui::Visuals::dark()
+    } else {
+        egui::Visuals::light()
+    };
     visuals.panel_fill = theme::sidebar();
     visuals.window_fill = theme::sidebar();
     visuals.window_stroke = Stroke::new(1.0, theme::border());
@@ -78,10 +164,18 @@ pub(super) fn apply_style(context: &egui::Context) {
     visuals.window_shadow = egui::Shadow::NONE;
     visuals.popup_shadow = egui::Shadow::NONE;
     visuals.override_text_color = Some(theme::text());
-    visuals.hyperlink_color = NAVY;
-    visuals.selection.bg_fill = Color32::from_rgb(178, 207, 243);
-    visuals.extreme_bg_color = WHITE;
-    visuals.code_bg_color = Color32::from_gray(231);
+    visuals.hyperlink_color = if dark { theme::blue() } else { NAVY };
+    visuals.selection.bg_fill = if dark {
+        selected_fill()
+    } else {
+        Color32::from_rgb(178, 207, 243)
+    };
+    visuals.extreme_bg_color = pane_fill();
+    visuals.code_bg_color = if dark {
+        theme::surface()
+    } else {
+        Color32::from_gray(231)
+    };
     let widgets = &mut visuals.widgets;
     for widget in [
         &mut widgets.noninteractive,
@@ -91,13 +185,23 @@ pub(super) fn apply_style(context: &egui::Context) {
         &mut widgets.open,
     ] {
         widget.corner_radius = egui::CornerRadius::ZERO;
-        widget.bg_fill = SILVER;
-        widget.weak_bg_fill = SILVER;
+        widget.bg_fill = control_face();
+        widget.weak_bg_fill = control_face();
         widget.bg_stroke = Stroke::new(1.0, theme::border());
         widget.expansion = 0.0;
     }
     widgets.hovered.weak_bg_fill = Color32::from_gray(214);
     widgets.active.weak_bg_fill = Color32::from_gray(170);
+    if dark {
+        widgets.noninteractive.fg_stroke.color = theme::muted();
+        widgets.inactive.fg_stroke.color = theme::text();
+        for widget in [&mut widgets.hovered, &mut widgets.active, &mut widgets.open] {
+            widget.bg_fill = theme::surface();
+            widget.weak_bg_fill = theme::surface();
+            widget.bg_stroke.color = theme::blue();
+            widget.fg_stroke.color = theme::text();
+        }
+    }
     context.set_visuals(visuals);
     context.style_mut(|style| {
         style.spacing.button_padding = vec2(7.0, 3.0);
@@ -112,10 +216,15 @@ pub(super) fn apply_style(context: &egui::Context) {
 }
 
 pub(super) fn bevel(painter: &egui::Painter, rect: Rect, sunken: bool) {
-    let (light, dark) = if sunken {
-        (BLACK, WHITE)
+    let shadow = if high_contrast() {
+        theme::border().gamma_multiply(0.6)
     } else {
-        (WHITE, BLACK)
+        BLACK
+    };
+    let (light, dark) = if sunken {
+        (shadow, WHITE)
+    } else {
+        (WHITE, shadow)
     };
     let edge = rect.shrink(0.5);
     painter.hline(edge.x_range(), edge.top(), Stroke::new(1.0, light));
@@ -139,10 +248,13 @@ pub(super) fn button(
 }
 
 pub(super) fn list_box(ui: &mut Ui, contents: impl FnOnce(&mut Ui)) {
-    let frame = Frame::NONE.fill(WHITE).inner_margin(3).show(ui, |ui| {
-        ui.set_min_width(ui.available_width());
-        contents(ui);
-    });
+    let frame = Frame::NONE
+        .fill(pane_fill())
+        .inner_margin(3)
+        .show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            contents(ui);
+        });
     bevel(ui.painter(), frame.response.rect, true);
 }
 
@@ -179,18 +291,27 @@ pub(super) fn group_box(ui: &mut Ui, label: &str, contents: impl FnOnce(&mut Ui)
 }
 
 pub(super) fn caption_background(painter: &egui::Painter, rect: Rect) {
-    let blue = Color32::from_rgb(24, 109, 186);
-    gradient(painter, rect, [NAVY, blue, blue, NAVY]);
+    if high_contrast() {
+        painter.rect_filled(rect, 0, BLACK);
+        painter.hline(
+            rect.x_range(),
+            rect.bottom() - 0.5,
+            Stroke::new(1.0, theme::border()),
+        );
+    } else {
+        let blue = Color32::from_rgb(24, 109, 186);
+        gradient(painter, rect, [NAVY, blue, blue, NAVY]);
+    }
 }
 
-fn caption_control(
+pub(super) fn caption_control(
     painter: &egui::Painter,
     rect: Rect,
     index: usize,
     maximized: bool,
     pressed: bool,
 ) {
-    painter.rect_filled(rect, 0, SILVER);
+    painter.rect_filled(rect, 0, control_face());
     bevel(painter, rect, pressed);
     if !pressed {
         let inner = rect.shrink(1.5);
@@ -213,7 +334,7 @@ fn caption_control(
         1 => icon_svg!("classic-maximize"),
         _ => icon_svg!("classic-close"),
     };
-    paint_svg(painter, bounds, source, BLACK);
+    paint_svg(painter, bounds, source, control_ink());
 }
 
 fn mark(painter: &egui::Painter, rect: Rect) {
@@ -245,9 +366,19 @@ fn welcome_monitor(painter: &egui::Painter, bounds: Rect) {
     let width = (bounds.width() * 0.40).min(285.0);
     let origin = bounds.right_bottom() - vec2(width + 24.0, width * 0.76 + 18.0);
     let point = |x, y| origin + vec2(x * width, y * width);
-    let face = Color32::from_rgba_unmultiplied(115, 158, 200, 37);
-    let side = Color32::from_rgba_unmultiplied(82, 127, 175, 38);
-    let screen = Color32::from_rgba_unmultiplied(64, 116, 172, 25);
+    let (face, side, screen) = if high_contrast() {
+        (
+            Color32::from_white_alpha(30),
+            Color32::from_white_alpha(22),
+            Color32::from_white_alpha(14),
+        )
+    } else {
+        (
+            Color32::from_rgba_unmultiplied(115, 158, 200, 37),
+            Color32::from_rgba_unmultiplied(82, 127, 175, 38),
+            Color32::from_rgba_unmultiplied(64, 116, 172, 25),
+        )
+    };
     for (points, color) in [
         ([(0.0, 0.08), (0.73, 0.18), (0.73, 0.63), (0.0, 0.53)], face),
         ([(0.0, 0.08), (0.24, 0.0), (1.0, 0.10), (0.73, 0.18)], face),
@@ -274,7 +405,7 @@ impl ReDox {
         egui::TopBottomPanel::top("win98_window_chrome")
             .exact_height(HEADER_HEIGHT)
             .show_separator_line(false)
-            .frame(Frame::NONE.fill(SILVER).inner_margin(3))
+            .frame(Frame::NONE.fill(control_face()).inner_margin(3))
             .show(context, |ui| {
                 bevel(ui.painter(), ui.max_rect().expand(3.0), false);
                 ui.spacing_mut().item_spacing.y = 0.0;
@@ -332,7 +463,7 @@ impl ReDox {
                                 );
                                 ui.close();
                             }
-                            for shortcut in SHORTCUTS {
+                            for shortcut in WINDOWS.into_iter().chain(SHORTCUTS) {
                                 if ui.button(shortcut.label()).clicked() {
                                     shortcut.activate(self, context);
                                     ui.close();
@@ -366,17 +497,16 @@ impl ReDox {
                         self.dispatch_ui_action(redox_studio::actions::UiAction::Next, context);
                     }
                     ui.separator();
-                    let task = button(ui, RichText::new("      ReDox").strong(), vec2(123.0, 23.0));
-                    bevel(ui.painter(), task.rect, true);
-                    mark(
-                        ui.painter(),
-                        Rect::from_center_size(
-                            task.rect.left_center() + vec2(14.0, 0.0),
-                            vec2(14.0, 12.0),
-                        ),
-                    );
-                    if task.on_hover_text("Focus the message box").clicked() {
-                        self.focus_win98_prompt(context);
+                    for shortcut in WINDOWS {
+                        let active = matches!(shortcut, Shortcut::Terminal)
+                            == super::win98_terminal::is_open(context);
+                        let task = button(ui, shortcut.label(), vec2(88.0, 23.0));
+                        if active {
+                            bevel(ui.painter(), task.rect, true);
+                        }
+                        if task.clicked() {
+                            shortcut.activate(self, context);
+                        }
                     }
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         let provider = if self.is_ollama() { "OLLAMA" } else { "CODEX" };
@@ -406,16 +536,19 @@ impl ReDox {
                     .inner_margin(Margin::symmetric(4, 12)),
             )
             .show(context, |ui| {
-                for shortcut in SHORTCUTS {
+                for shortcut in WINDOWS.into_iter().chain(SHORTCUTS) {
                     let (rect, response) =
                         ui.allocate_exact_size(vec2(ui.available_width(), 68.0), Sense::click());
                     response.widget_info(|| {
                         egui::WidgetInfo::labeled(egui::WidgetType::Button, true, shortcut.label())
                     });
                     #[cfg(feature = "design-export")]
-                    super::design_export::record(context, rect, shortcut.action());
+                    if let Some(action) = shortcut.action() {
+                        super::design_export::record(context, rect, action);
+                    }
                     if response.hovered() || response.has_focus() {
-                        ui.painter().rect_filled(rect.shrink(2.0), 0, NAVY);
+                        ui.painter()
+                            .rect_filled(rect.shrink(2.0), 0, selected_fill());
                     }
                     shortcut.paint(ui, pos2(rect.center().x - 16.0, rect.top() + 5.0));
                     ui.painter().text(
@@ -464,22 +597,51 @@ impl ReDox {
                 bevel(ui.painter(), rect, false);
                 bevel(ui.painter(), rect.shrink(1.0), false);
                 let inner = rect.shrink(4.0);
+                let terminal_open = root && super::win98_terminal::is_open(context);
                 let mut window = ui.new_child(
                     egui::UiBuilder::new()
                         .id_salt(("win98_conversation", context.viewport_id()))
                         .max_rect(inner),
                 );
                 window.set_clip_rect(ui.clip_rect().intersect(inner));
-                if !root {
-                    egui::TopBottomPanel::top("win98_branch_header")
-                        .exact_height(27.0)
-                        .show_separator_line(false)
-                        .frame(Frame::NONE)
-                        .show_inside(&mut window, |ui| self.win98_caption(ui, context, false));
+                if terminal_open {
+                    window.disable();
+                }
+                let (header_id, header_height) = if root {
+                    ("win98_chat_header", 23.0)
+                } else {
+                    ("win98_branch_header", 27.0)
+                };
+                egui::TopBottomPanel::top(header_id)
+                    .exact_height(header_height)
+                    .show_separator_line(false)
+                    .frame(Frame::NONE)
+                    .show_inside(&mut window, |ui| {
+                        if root {
+                            let (caption, _) = ui.allocate_exact_size(
+                                vec2(ui.available_width(), 20.0),
+                                Sense::hover(),
+                            );
+                            caption_background(ui.painter(), caption);
+                            ui.painter().text(
+                                caption.left_center() + vec2(6.0, 0.0),
+                                egui::Align2::LEFT_CENTER,
+                                "Chat",
+                                theme::semibold(13.0),
+                                WHITE,
+                            );
+                        } else {
+                            self.win98_caption(ui, context, false);
+                        }
+                    });
+                if terminal_open {
+                    let overlay = window.available_rect_before_wrap().shrink(6.0);
+                    super::win98_terminal::show(ui, overlay, self);
+                    return;
                 }
                 self.composer(context, Some(&mut window));
                 egui::CentralPanel::default()
-                    .frame(Frame::NONE.fill(WHITE))
+                    .frame(Frame::NONE.fill(pane_fill()))
                     .show_inside(&mut window, |ui| {
                         ui.set_clip_rect(ui.clip_rect().intersect(ui.max_rect()));
                         if let Some(chat) = self
@@ -576,12 +738,22 @@ impl ReDox {
 
     fn win98_welcome(&mut self, ui: &mut Ui, context: &egui::Context) {
         let rect = ui.max_rect();
-        let sky = Color32::from_rgb(175, 208, 239);
-        gradient(
-            ui.painter(),
-            rect,
-            [sky, Color32::from_rgb(229, 244, 254), WHITE, WHITE],
-        );
+        let (sky, horizon, ground, lettering) = if high_contrast() {
+            (
+                theme::surface(),
+                theme::sidebar(),
+                pane_fill(),
+                theme::blue(),
+            )
+        } else {
+            (
+                Color32::from_rgb(175, 208, 239),
+                Color32::from_rgb(229, 244, 254),
+                WHITE,
+                NAVY,
+            )
+        };
+        gradient(ui.painter(), rect, [sky, horizon, ground, ground]);
         welcome_monitor(ui.painter(), rect);
         bevel(ui.painter(), rect, true);
         super::scroll::ScrollArea::vertical()
@@ -592,24 +764,26 @@ impl ReDox {
                         let (logo, _) = ui.allocate_exact_size(vec2(38.0, 30.0), Sense::hover());
                         mark(ui.painter(), logo);
                         ui.label(RichText::new("ReDox").font(theme::semibold(36.0)));
-                        ui.label(RichText::new("98").size(30.0).color(NAVY));
+                        ui.label(RichText::new("98").size(30.0).color(lettering));
                     });
                     ui.label(
                         RichText::new("N A T I V E   W O R K S P A C E")
                             .size(10.0)
-                            .color(NAVY),
+                            .color(lettering),
                     );
                     let (stripe, _) =
                         ui.allocate_exact_size(vec2(ui.available_width(), 2.0), Sense::hover());
-                    for (index, color) in [
-                        Color32::RED,
-                        Color32::GOLD,
-                        Color32::DARK_GREEN,
-                        Color32::BLUE,
-                    ]
-                    .into_iter()
-                    .enumerate()
-                    {
+                    let stripe_colors = if high_contrast() {
+                        [WHITE, theme::muted(), theme::border(), theme::surface()]
+                    } else {
+                        [
+                            Color32::RED,
+                            Color32::GOLD,
+                            Color32::DARK_GREEN,
+                            Color32::BLUE,
+                        ]
+                    };
+                    for (index, color) in stripe_colors.into_iter().enumerate() {
                         let width = stripe.width() / 4.0;
                         ui.painter().rect_filled(
                             Rect::from_min_size(
@@ -687,9 +861,16 @@ impl ReDox {
     }
 
     fn focus_win98_prompt(&mut self, context: &egui::Context) {
+        if context.viewport_id() == egui::ViewportId::ROOT {
+            super::win98_terminal::set_open(context, false);
+        }
         if let Some(id) = self.prompt_input_id {
             context.memory_mut(|memory| memory.request_focus(id));
         }
         self.focus_prompt = true;
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/ui/win98.rs"]
+mod tests;
