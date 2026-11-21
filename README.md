@@ -79,7 +79,7 @@ Want your own look? UI packs are small JSON files (colors, heading text, an opti
 <details>
 <summary><b>Spoiler: unlocking Windows 98</b></summary>
 
-Open **Settings > About** and click the ReDox logo five times. Windows 98 and Windows 98 Dark then appear in the **UI** menu, with a teal desktop, classic bevelled windows, a Start taskbar, classic scrollbars, and a pixel-drawn title bar.
+nah you cheats
 
 It also includes a **Terminal** view of your conversation:
 
