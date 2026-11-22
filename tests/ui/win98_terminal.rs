@@ -416,6 +416,43 @@ fn slash_commands_run_locally_from_the_prompt() {
 }
 
 #[test]
+fn access_command_reports_and_switches_the_current_chat_mode() {
+    use redox::domain::Mode;
+
+    let context = egui::Context::default();
+    let mut app = terminal_app(&context);
+    let folderless = app.session.active_chat.unwrap();
+    commands::run(&mut app, &context, "/access full");
+    assert!(app.session.active().unwrap().mode == Mode::Chat);
+    assert!(
+        commands::output(&context, folderless)
+            .unwrap()
+            .contains("/project")
+    );
+
+    app.session.new_project_chat("project".into());
+    let project = app.session.active_chat.unwrap();
+    commands::run(&mut app, &context, "/access");
+    assert!(
+        commands::output(&context, project)
+            .unwrap()
+            .contains("Current access: Full access")
+    );
+    assert_eq!(
+        commands::suggestions(&app, "/access w")[0].input,
+        "/access workspace"
+    );
+    for (command, mode) in [
+        ("/access workspace", Mode::Code),
+        ("/access read-only", Mode::Chat),
+        ("/access full", Mode::FullAccess),
+    ] {
+        commands::run(&mut app, &context, command);
+        assert!(app.session.active().unwrap().mode == mode);
+    }
+}
+
+#[test]
 fn slash_commands_set_only_supported_models_and_effort() {
     let context = egui::Context::default();
     let mut app = terminal_app(&context);

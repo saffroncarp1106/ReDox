@@ -356,7 +356,7 @@ impl Chat {
             if workspace.is_none() {
                 self.mode = Mode::Chat;
             } else if self.workspace.is_none() {
-                self.mode = Mode::Code;
+                self.mode = Mode::FullAccess;
             }
             self.reset_server_thread();
             self.reset_variant_contexts();
@@ -983,6 +983,7 @@ impl Session {
             return;
         }
         let mut chat = Chat::new(workspace);
+        chat.set_mode(Mode::FullAccess);
         if let Some(active) = self.active() {
             chat.provider = active.provider;
             chat.ollama_model = active.ollama_model.clone();

@@ -30,6 +30,10 @@ Terminal uses VileR’s **PxPlus IBM BIOS**, an 8×8 pixel font from the Ultimat
 
 Type `/` at the Terminal prompt to see matching commands. Press **Tab** to fill in the first suggestion or click one, then press **Enter** to run it. Suggestions also cover loaded model IDs, supported effort levels, settings pages, and help topics. Use `/help` for the full list or `/help model effort` for a command's syntax. Use `/stop` to stop the response in the current chat. Use `/settings` to change the Terminal caret width or enter a title bar color such as `#800080`. Leave the color blank to hide the bar, or enter `default` to use the theme's title bar color. Commands such as `/settings models` open an app settings page.
 
+New project chats start with **Full access**, which allows filesystem and command access without approval prompts.
+Use `/access` to see the current chat's mode, or `/access full`, `/access workspace`, or `/access read-only` to change
+it. Chats without a project start in read-only mode.
+
 The Windows 98 top bar uses a compact blue gradient caption, pixel-drawn window controls, and a gray menu row. **Windows 98 Dark** appears beside it in the **UI** menu after unlocking Windows 98. It uses black backgrounds and title bars, neutral gray controls, white text, and high-contrast borders while keeping the same layout and Terminal.
 
 Terminal's **CRT filter** is enabled by default and can be adjusted in `/settings`. The live preview shows changes to scanline strength and spacing, RGB scanline brightness and bloom, RGB halo strength and separation, and screen curvature. Brightness adds a colored scanline core, and bloom adds a soft glow around it. Each can be adjusted independently down to 0. Curvature gently bows the transcript and scanlines while keeping the screen nearly rectangular.

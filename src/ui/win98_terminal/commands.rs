@@ -1,12 +1,18 @@
 use eframe::egui;
 use redox::codex::ModelInfo;
-use redox::domain::DEFAULT_MODEL;
+use redox::domain::{DEFAULT_MODEL, Mode};
 use redox_studio::actions::UiAction;
 use uuid::Uuid;
 
 use crate::app::ReDox;
 
 use super::super::SettingsPage;
+
+const ACCESS_MODES: [(&str, Mode); 3] = [
+    ("full", Mode::FullAccess),
+    ("workspace", Mode::Code),
+    ("read-only", Mode::Chat),
+];
 
 const COMMANDS: &[(&str, &str, &str)] = &[
     ("/help", " [command]", "List commands or show their syntax"),
@@ -35,6 +41,11 @@ const COMMANDS: &[(&str, &str, &str)] = &[
     ("/next", "", "Switch to the next chat"),
     ("/rename", "", "Rename this chat"),
     ("/project", "", "Choose a project folder"),
+    (
+        "/access",
+        " [full|workspace|read-only]",
+        "Show or set access for this chat",
+    ),
     ("/attach", "", "Attach files"),
     ("/stop", "", "Stop the current response"),
     ("/fullscreen", "", "Toggle Terminal fullscreen"),
@@ -97,6 +108,14 @@ pub(super) fn suggestions(app: &ReDox, draft: &str) -> Vec<Suggestion> {
             }
             "/ollama" => {
                 return complete_values("/ollama", args, ["use"], "Use the selected Ollama model");
+            }
+            "/access" => {
+                return complete_values(
+                    "/access",
+                    args,
+                    ACCESS_MODES.iter().map(|&(name, _)| name),
+                    "Chat access mode",
+                );
             }
             "/help" => {
                 let names = COMMANDS
@@ -294,6 +313,7 @@ fn execute(app: &mut ReDox, context: &egui::Context, name: &str, args: &str) -> 
         "usage" => return "Usage: /usage check".into(),
         "model" => return model(app, args),
         "effort" => return effort(app, args),
+        "access" => return access(app, args),
         "fullscreen" => {
             if !args.is_empty() {
                 return "Usage: /fullscreen".into();
@@ -363,6 +383,29 @@ fn settings(app: &mut ReDox, page: &str) -> String {
     app.settings_page = selected;
     app.settings_open = true;
     String::new()
+}
+
+fn access(app: &mut ReDox, args: &str) -> String {
+    let Some(chat) = app.session.active_mut() else {
+        return "Open a chat to manage access.".into();
+    };
+    if args.is_empty() {
+        return format!("Current access: {}", chat.mode.label());
+    }
+    let Some(&(_, mode)) = ACCESS_MODES
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case(args))
+    else {
+        return help("access");
+    };
+    if app.running.is_some() {
+        return "Stop the response before changing access.".into();
+    }
+    if chat.workspace.is_none() && mode != Mode::Chat {
+        return "Choose a project with /project before increasing access.".into();
+    }
+    chat.set_mode(mode);
+    format!("Access: {}", chat.mode.label())
 }
 
 fn model(app: &mut ReDox, args: &str) -> String {
