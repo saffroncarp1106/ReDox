@@ -11,8 +11,13 @@ use crate::domain::{Chat, Role};
 use crate::ollama::{ContextUsage, Stats};
 
 pub const DEFAULT_BASE_URL: &str = "https://api.deepseek.com";
-pub const DEFAULT_MODEL: &str = "deepseek-chat";
-pub const MODEL_LIMIT: u32 = 65_536;
+pub const DEFAULT_MODEL: &str = "deepseek-flash";
+/// The models DeepSeek currently serves, with the label shown in the picker.
+pub const MODELS: &[(&str, &str)] = &[
+    ("deepseek-flash", "Flash — fast, vision and tools"),
+    ("deepseek-v4-pro", "V4 Pro — strongest, no vision"),
+];
+pub const MODEL_LIMIT: u32 = 1_000_000;
 const MAX_CONTEXT_BYTES: usize = 96 * 1024;
 const MAX_RECORD_BYTES: usize = 2 * 1024 * 1024;
 
@@ -183,6 +188,7 @@ async fn run(request: Request, sender: mpsc::Sender<ProviderEvent>) -> Result<()
     let mut buffer: Vec<u8> = Vec::new();
     let mut reply = String::new();
     let mut usage: Option<(u64, u64, u64, Option<u64>)> = None;
+    let mut thinking = false;
     let mut done = false;
     let mut response = response;
 
@@ -222,6 +228,13 @@ async fn run(request: Request, sender: mpsc::Sender<ProviderEvent>) -> Result<()
                     {
                         reply.push_str(content);
                         send(&sender, ProviderEvent::Content(content.to_owned())).await?;
+                    } else if !thinking
+                        && value["choices"][0]["delta"]["reasoning_content"]
+                            .as_str()
+                            .is_some_and(|reasoning| !reasoning.is_empty())
+                    {
+                        thinking = true;
+                        send(&sender, ProviderEvent::Status("Thinking…".into())).await?;
                     }
                     if let Some(tokens) = value.get("usage").filter(|usage| !usage.is_null()) {
                         let prompt = tokens["prompt_tokens"].as_u64().unwrap_or(0);

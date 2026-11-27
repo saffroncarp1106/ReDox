@@ -506,10 +506,34 @@ impl ReDox {
                     .desired_width(f32::INFINITY),
             );
             ui.label("Model");
+            let current = self.session.deepseek.model().to_owned();
+            let known = redox::deepseek::MODELS
+                .iter()
+                .any(|(id, _)| *id == current);
+            egui::ComboBox::from_id_salt("deepseek_model")
+                .width(ui.available_width().min(320.0))
+                .selected_text(if known {
+                    current.to_owned()
+                } else {
+                    format!("{current} (custom)")
+                })
+                .show_ui(ui, |ui| {
+                    for (id, label) in redox::deepseek::MODELS {
+                        let selected = current == *id;
+                        if ui.selectable_label(selected, *label).clicked() {
+                            self.session.deepseek.model = (*id).into();
+                        }
+                    }
+                });
             ui.add(
                 egui::TextEdit::singleline(&mut self.session.deepseek.model)
-                    .hint_text("deepseek-chat or deepseek-reasoner")
+                    .hint_text(redox::deepseek::DEFAULT_MODEL)
                     .desired_width(f32::INFINITY),
+            );
+            ui.label(
+                RichText::new("Flash is the fast general model with vision and tool support. V4 Pro is the strongest tier and does not accept images. Any other id is sent as-is.")
+                    .small()
+                    .color(muted()),
             );
             ui.collapsing("Endpoint", |ui| {
                 ui.label("Base URL");

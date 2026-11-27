@@ -8,7 +8,7 @@ Redox: A reaction where both reduction and oxidation occurs. The process of Oxid
 Windows 98 is the interface under active development and the one to expect updates for. The older interfaces are being deprecated: Claude and Gemini are gone, and Codex is kept under **Settings > Interface > Legacy** along with the other menu-only options. SaffyOS is in development — it is unfinished and not functional yet, so treat those pages and commands as previews.
 
 ## Run
-Version **0.4.0**. The Studio runtime library is bundled under `src/ui/studio_runtime` so ordinary builds work from this repository alone.
+Version **0.4.1**. The Studio runtime library is bundled under `src/ui/studio_runtime` so ordinary builds work from this repository alone.
 
 Windows resource budgets are available in **Settings > Resource limiter**. Enable the limiter, choose CPU and RAM percentages, enter your connection's upload capacity in Mbps, choose an upload percentage, and click **Apply resource budgets**. Applied settings persist across restarts. The limiter starts disabled with proposed budgets of 50% and a user-editable 20 Mbps upload reference.
 
@@ -64,7 +64,7 @@ Chat rows have a small **×** button to archive locally. Open **Archived chats**
 
 ## DeepSeek
 
-ReDox can chat through DeepSeek's OpenAI-compatible API without the Codex CLI. Open **Settings > Models > DeepSeek**, paste an API key, and press **Use DeepSeek for this chat**. The key is stored in the local `redox.session.v1` state file; set `DEEPSEEK_API_KEY` instead to keep it out of that file. The default model is `deepseek-chat`; `deepseek-reasoner` also works. **Back to Codex** returns the chat to the CLI transport.
+ReDox can chat through DeepSeek's OpenAI-compatible API without the Codex CLI. Open **Settings > Models > DeepSeek**, paste an API key, and press **Use DeepSeek for this chat**. The key is stored in the local `redox.session.v1` state file; set `DEEPSEEK_API_KEY` instead to keep it out of that file. Pick `deepseek-flash` (fast, vision and tools) or `deepseek-v4-pro` (strongest, no vision), or type another model id. The default is `deepseek-flash`. **Back to Codex** returns the chat to the CLI transport.
 
 Replies stream into the chat and report their token counts in the sidebar footer and in the Windows 98 taskbar tray. The endpoint field accepts any OpenAI-compatible base URL, so a proxy or a local gateway works too. This provider is text-only for now: no project tools, desktop control, or delegation.
 
