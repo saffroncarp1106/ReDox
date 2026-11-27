@@ -26,7 +26,6 @@ struct Transcript {
     geometry: Geometry,
     rows: Vec<Row>,
     last_offset: Option<(f32, bool)>,
-    jump_to_latest: bool,
 }
 
 impl Transcript {
@@ -86,7 +85,11 @@ impl Transcript {
             end += lines * geometry.line_height
                 + geometry.gap
                 + 28.0
-                + if message.is_editable_prompt() { 30.0 } else { 0.0 }
+                + if message.is_editable_prompt() {
+                    30.0
+                } else {
+                    0.0
+                }
                 + images as f32 * super::media::MAX_IMAGE_HEIGHT;
             self.rows.push(Row {
                 id: message.id,
@@ -144,8 +147,7 @@ pub(super) fn show(
                 .map_or(offset <= 1.0, |(previous, followed)| {
                     followed && (offset - previous).abs() <= 1.0
                 });
-            let follow =
-                std::mem::take(&mut transcript.jump_to_latest) || follow_latest || followed;
+            let follow = follow_latest || followed;
             let anchor_index = transcript.row_at(offset);
             let anchor = transcript
                 .rows
@@ -179,8 +181,8 @@ pub(super) fn show(
             let right = left + width;
             let clip = ui.clip_rect();
             let row_clip = clip.intersect(Rect::from_min_max(
-                pos2(left, clip.top()),
-                pos2(right, clip.bottom()),
+                pos2(left, available.top() + offset),
+                pos2(right, available.top() + viewport.bottom()),
             ));
 
             for (message, row) in messages[first..].iter().zip(&mut transcript.rows[first..]) {
@@ -231,21 +233,6 @@ pub(super) fn show(
     if (offset - output.inner).abs() > 1.0 {
         ui.ctx().request_repaint();
     }
-    if bottom - offset > 48.0 {
-        let rect = Rect::from_center_size(
-            output.inner_rect.center_bottom() - vec2(0.0, 19.0),
-            vec2(118.0, 26.0),
-        );
-        let mut overlay = ui.new_child(egui::UiBuilder::new().id_salt(view_id).max_rect(rect));
-        if overlay
-            .put(rect, egui::Button::new("Jump to latest"))
-            .clicked()
-        {
-            transcript.jump_to_latest = true;
-            ui.ctx().request_repaint();
-        }
-    }
-
     if cache.len() == MAX_CACHED_TRANSCRIPTS {
         cache.remove(0);
     }

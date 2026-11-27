@@ -1,5 +1,5 @@
 use super::*;
-use eframe::egui::{Event, Modifiers, MouseWheelUnit, PointerButton, RawInput, Vec2};
+use eframe::egui::{Event, Modifiers, MouseWheelUnit, RawInput, Vec2};
 use redox::domain::MessageStatus;
 
 fn messages(count: usize) -> Vec<Message> {
@@ -19,7 +19,7 @@ fn messages(count: usize) -> Vec<Message> {
 
 fn frame(context: &egui::Context, items: &[Message], width: f32, events: Vec<Event>) -> Vec<Uuid> {
     let mut painted = Vec::new();
-    let _ = context.run(
+    let output = context.run(
         RawInput {
             screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(width, 600.0))),
             events,
@@ -37,6 +37,9 @@ fn frame(context: &egui::Context, items: &[Message], width: f32, events: Vec<Eve
             });
         },
     );
+    assert!(output.shapes.iter().all(|entry| {
+        !matches!(&entry.shape, egui::Shape::Text(text) if text.galley.text() == "Jump to latest")
+    }));
     painted
 }
 
@@ -106,26 +109,4 @@ fn scroll_anchor_survives_loading_older_history_and_resizing() {
     assert_eq!(anchor(&context), reading);
     frame(&context, &older, 620.0, vec![]);
     assert_eq!(anchor(&context), reading);
-
-    let latest = older.last().unwrap().id;
-    let pos = pos2(310.0, 574.0);
-    for pressed in [true, false] {
-        frame(
-            &context,
-            &older,
-            620.0,
-            vec![
-                Event::PointerMoved(pos),
-                Event::PointerButton {
-                    pos,
-                    button: PointerButton::Primary,
-                    pressed,
-                    modifiers: Modifiers::NONE,
-                },
-            ],
-        );
-    }
-    let painted = frame(&context, &older, 620.0, vec![]);
-    assert!(painted.contains(&latest));
-    assert!(layout(&context).last_offset.unwrap().1);
 }

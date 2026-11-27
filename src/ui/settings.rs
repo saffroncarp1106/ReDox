@@ -7,12 +7,12 @@ use super::{Preferences, SettingsPage, theme, win98};
 use crate::app::ReDox;
 use redox::codex;
 use redox::domain::{DEFAULT_MODEL, Mode};
-use redox_studio::native_appearance::NativeAppearanceProperty;
 
-const SETTINGS_PAGES: [(SettingsPage, &str); 9] = [
+const SETTINGS_PAGES: [(SettingsPage, &str); 10] = [
     (SettingsPage::Account, "Account"),
     (SettingsPage::Models, "Models & reasoning"),
     (SettingsPage::Workspace, "Workspace & access"),
+    (SettingsPage::SaffyOs, "SaffyOS"),
     (SettingsPage::Resources, "Resource limiter"),
     (SettingsPage::Appearance, "Appearance"),
     (SettingsPage::Cursors, "Cursor animation"),
@@ -25,6 +25,7 @@ const SETTINGS_ICONS: [Icon; SETTINGS_PAGES.len()] = [
     Icon::Home,
     Icon::Bolt,
     Icon::Shield,
+    Icon::Chat,
     Icon::Bolt,
     Icon::Grid,
     Icon::Reticle,
@@ -97,18 +98,9 @@ impl ReDox {
             self.settings_content(ui, context);
         } else {
             ui.horizontal_top(|ui| {
-                let override_color = (self.active_ui.id == "codex")
-                    .then(|| {
-                        super::conversation::appearance::color(
-                            context,
-                            NativeAppearanceProperty::SettingsNavigation,
-                        )
-                    })
-                    .flatten();
-                let fill = override_color.unwrap_or_else(theme::rail);
-                let navigation = Frame::NONE
-                    .fill(fill)
-                    .stroke(Stroke::new(1.0, override_color.unwrap_or_else(theme::border)))
+                Frame::NONE
+                    .fill(theme::rail())
+                    .stroke(Stroke::new(1.0, theme::border()))
                     .corner_radius(10)
                     .inner_margin(8)
                     .show(ui, |ui| {
@@ -127,26 +119,6 @@ impl ReDox {
                             },
                         );
                     });
-                #[cfg(feature = "design-export")]
-                {
-                    use redox_studio::native_appearance::{NativeRegionId, ThemeColor};
-                    super::design_export::record_native_region(
-                        context,
-                        NativeRegionId::SettingsNavigation,
-                        navigation.response.rect,
-                        ThemeColor::Rail,
-                    );
-                    if self.active_ui.id == "codex" {
-                        super::design_export::record_native_appearance(
-                            context,
-                            NativeAppearanceProperty::SettingsNavigation.id(),
-                            navigation.response.rect,
-                            fill.gamma_multiply(ui.opacity()),
-                        );
-                    }
-                }
-                #[cfg(not(feature = "design-export"))]
-                let _ = navigation;
                 Frame::NONE
                     .inner_margin(Margin::symmetric(10, 4))
                     .show(ui, |ui| {
@@ -256,6 +228,7 @@ impl ReDox {
                         "Account",
                         "Models",
                         "Workspace",
+                        "SaffyOS",
                         "Resources",
                         "Appearance",
                         "Cursors",
@@ -351,6 +324,7 @@ impl ReDox {
                         SettingsPage::Account => self.account_settings(ui, context),
                         SettingsPage::Models => self.model_settings(ui),
                         SettingsPage::Workspace => self.workspace_settings(ui, context),
+                        SettingsPage::SaffyOs => self.saffyos_settings(ui),
                         SettingsPage::Appearance => self.appearance_settings(ui, context),
                         SettingsPage::Cursors => {
                             heading(
@@ -515,6 +489,51 @@ impl ReDox {
         });
         ui.add_space(18.0);
         ui.label("You can also change the model and effort directly in the composer.");
+    }
+
+    fn saffyos_settings(&mut self, ui: &mut egui::Ui) {
+        heading(
+            ui,
+            "SaffyOS",
+            "Choose the default folder and Ollama model for SaffyOS chats.",
+        );
+        settings_group(ui, "Default folder", |ui| {
+            let folder = &mut self.ui_preferences.saffyos_folder;
+            ui.add(egui::TextEdit::singleline(folder).desired_width(f32::INFINITY));
+            if ui.button("Reset folder").clicked() {
+                *folder = super::DEFAULT_SAFFYOS_FOLDER.into();
+            }
+            let path = std::path::Path::new(folder.trim());
+            if !path.is_absolute() || !path.is_dir() {
+                ui.colored_label(
+                    Color32::LIGHT_RED,
+                    "Enter the full path to an existing folder.",
+                );
+            }
+        });
+        ui.add_space(20.0);
+        settings_group(ui, "Ollama model", |ui| {
+            let model = &mut self.ui_preferences.saffyos_model;
+            ui.add(
+                egui::TextEdit::singleline(model)
+                    .hint_text("Automatic Ainsley Ox BBB")
+                    .desired_width(f32::INFINITY),
+            );
+            egui::ComboBox::from_id_salt("saffyos_models")
+                .selected_text("Choose a model")
+                .show_ui(ui, |ui| {
+                    if ui
+                        .selectable_label(model.trim().is_empty(), "Automatic Ainsley Ox BBB")
+                        .clicked()
+                    {
+                        model.clear();
+                    }
+                    for loaded in &self.ollama_models {
+                        ui.selectable_value(model, loaded.name.clone(), &loaded.name);
+                    }
+                });
+            ui.label("Enter an Ollama model ID, including its tag, or leave it blank for automatic selection.");
+        });
     }
 
     fn workspace_settings(&mut self, ui: &mut egui::Ui, context: &egui::Context) {
@@ -726,7 +745,11 @@ impl ReDox {
                 context.set_zoom_factor(self.ui_preferences.zoom);
             }
             ui.add_space(16.0);
-            theme::checkbox(ui, &mut self.sidebar_visible, "Show project and chat sidebar");
+            theme::checkbox(
+                ui,
+                &mut self.sidebar_visible,
+                "Show project and chat sidebar",
+            );
             if theme::checkbox(
                 ui,
                 &mut self.ui_preferences.floating_windows,
@@ -826,10 +849,6 @@ fn settings_group(ui: &mut egui::Ui, title: &str, contents: impl FnOnce(&mut egu
 fn settings_tab(ui: &mut egui::Ui, label: &str, icon: Icon, selected: bool) -> egui::Response {
     let (rect, response) =
         ui.allocate_exact_size(vec2(ui.available_width(), 35.0), egui::Sense::click());
-    #[cfg(feature = "design-export")]
-    if let Some(action) = redox_studio::actions::UiAction::from_label(label) {
-        super::design_export::record(ui.ctx(), rect, action);
-    }
     response.widget_info(|| {
         egui::WidgetInfo::selected(
             egui::WidgetType::SelectableLabel,

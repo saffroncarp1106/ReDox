@@ -13,6 +13,9 @@ pub enum Update {
     Feedback(uuid::Uuid, Result<(), String>),
     Delegation(crate::delegation::Event),
     Metrics(crate::ollama::Stats),
+    Context(crate::ollama::ContextUsage),
+    Qualification(crate::ollama::QualificationTiming),
+    OllamaStage(&'static str),
     Content(String),
     ReplaceContent {
         offset: usize,
@@ -118,6 +121,9 @@ impl Running {
                     ProviderEvent::Feedback(id, result) => Update::Feedback(id, result),
                     ProviderEvent::Delegation(event) => Update::Delegation(event),
                     ProviderEvent::Metrics(stats) => Update::Metrics(stats),
+                    ProviderEvent::Context(usage) => Update::Context(usage),
+                    ProviderEvent::Qualification(timing) => Update::Qualification(timing),
+                    ProviderEvent::OllamaStage(stage) => Update::OllamaStage(stage),
                     ProviderEvent::Thread(thread) => Update::Thread(thread),
                     ProviderEvent::Turn(turn) => Update::Turn(turn),
                     ProviderEvent::Content(text) => Update::Content(text),
@@ -128,11 +134,6 @@ impl Running {
                     ProviderEvent::Approval(approval) => Update::Approval(approval),
                 };
 
-                let streamed_text = matches!(
-                    &update,
-                    Update::Content(_)
-                        | Update::Delegation(crate::delegation::Event::Content { .. })
-                );
                 if sender.send(RunEvent { run: id, update }).await.is_err() {
                     activity.stop();
                     let _ = stop.send(true);
@@ -140,14 +141,7 @@ impl Running {
                     return;
                 }
 
-                if streamed_text {
-                    context.request_repaint_after_for(
-                        std::time::Duration::from_millis(32),
-                        egui::ViewportId::ROOT,
-                    );
-                } else {
-                    context.request_repaint_of(egui::ViewportId::ROOT);
-                }
+                context.request_repaint_of(egui::ViewportId::ROOT);
             }
 
             let result = producer
@@ -247,6 +241,26 @@ pub fn apply_event(session: &mut Session, active: Option<RunId>, event: RunEvent
             }
             false
         }
+        Update::Context(usage) => {
+            if let Some(chat) = session
+                .chats
+                .iter_mut()
+                .find(|chat| chat.id == event.run.chat)
+            {
+                chat.ollama_usage.context = Some((event.run.message, usage));
+            }
+            false
+        }
+        Update::Qualification(timing) => {
+            if let Some(chat) = session
+                .chats
+                .iter_mut()
+                .find(|chat| chat.id == event.run.chat)
+            {
+                chat.ollama_usage.qualification = Some((event.run.message, timing));
+            }
+            false
+        }
         Update::Thread(thread) => {
             let desktop = session.desktop.enabled && crate::desktop::SUPPORTED;
             let delegation = session.ollama.codex_delegation
@@ -283,7 +297,7 @@ pub fn apply_event(session: &mut Session, active: Option<RunId>, event: RunEvent
             }
             false
         }
-        Update::Status(_) | Update::Approval(_) => false,
+        Update::Status(_) | Update::OllamaStage(_) | Update::Approval(_) => false,
         Update::Activity { turn_id, update } => {
             message.activity.turn_id = turn_id;
             match update {

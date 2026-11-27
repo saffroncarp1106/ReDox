@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use eframe::egui::{self, Color32, RichText, TextureHandle, Vec2, vec2};
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 use latex_rust::{Dim, MathFont, MathStyle, PngOptions};
-use pulldown_cmark::{Event, Parser, Tag};
+use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 
 use super::theme;
 
@@ -75,22 +75,42 @@ fn render(ui: &mut egui::Ui, source: &str) {
         && !source.contains("~~~")
         && !source.contains("    ")
         && !source.contains('\t')
+        && !source.contains('|')
     {
         render_prose(ui, source);
         return;
     }
     let mut offset = 0;
     let mut block_start = None;
+    let mut table_start = None;
+    let mut depth = 0;
     let mut code = String::new();
-    for (event, range) in Parser::new(source).into_offset_iter() {
+    for (event, range) in Parser::new_ext(source, Options::ENABLE_TABLES).into_offset_iter() {
         match event {
+            Event::Start(_) => depth += 1,
+            Event::End(_) => depth -= 1,
+            _ => {}
+        }
+        match event {
+            Event::Start(Tag::Table(_)) if depth == 1 => {
+                render_prose(ui, &source[offset..range.start]);
+                table_start = Some(range.start);
+            }
+            Event::End(TagEnd::Table) => {
+                if let Some(start) = table_start.take() {
+                    super::scroll::ScrollArea::horizontal()
+                        .id_salt(ui.next_auto_id().with("markdown_table"))
+                        .show(ui, |ui| render_prose(ui, &source[start..range.end]));
+                    offset = range.end;
+                }
+            }
             Event::Start(Tag::CodeBlock(_)) => {
                 render_prose(ui, &source[offset..range.start]);
                 block_start = Some(range.start);
                 code.clear();
             }
             Event::Text(text) if block_start.is_some() => code.push_str(&text),
-            Event::End(pulldown_cmark::TagEnd::CodeBlock) if block_start.is_some() => {
+            Event::End(TagEnd::CodeBlock) if block_start.is_some() => {
                 egui::Frame::group(ui.style()).show(ui, |ui| {
                     let width = ui.available_width();
                     ui.horizontal_top(|ui| {

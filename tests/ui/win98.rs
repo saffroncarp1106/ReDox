@@ -93,7 +93,7 @@ fn dark_win98_keeps_classic_controls_and_renders_chat_and_terminal() {
         matches!(&shape.shape, egui::Shape::Rect(rect) if rect.fill == palette.surface && rect.rect.contains(bubble_ink))
     }));
 
-    super::super::win98_terminal::set_open(&context, true);
+    super::super::win98_terminal::set_open(&mut app, &context, true);
     let terminal = render(&mut app);
     assert!(terminal.shapes.iter().any(|shape| {
         matches!(&shape.shape, egui::Shape::Text(text) if text.galley.text() == "ReDox Terminal")

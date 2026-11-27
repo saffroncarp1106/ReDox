@@ -37,7 +37,7 @@ impl ReDox {
                         match icon {
                             Icon::NewChat => {
                                 self.dispatch_ui_action(
-                                    redox_studio::actions::UiAction::NewChat,
+                                    crate::app::ui_actions::UiAction::NewChat,
                                     context,
                                 );
                             }
@@ -225,7 +225,10 @@ impl ReDox {
                     }
                     if self.active_chat_running() {
                         if icons::button(ui, Icon::Close, "Stop response").clicked() {
-                            self.dispatch_ui_action(redox_studio::actions::UiAction::Stop, context);
+                            self.dispatch_ui_action(
+                                crate::app::ui_actions::UiAction::Stop,
+                                context,
+                            );
                         }
                     }
                     {
@@ -286,24 +289,7 @@ impl ReDox {
         ui.add_space(5.0);
         centered_controls(ui, "gemini_chat_options", |ui| {
             self.model_effort_picker(ui, "gemini_model_effort");
-            if let Some(chat) = self.session.active_mut()
-                && chat.workspace.is_some()
-            {
-                let mut mode = chat.mode;
-                ui.add_enabled_ui(self.running.is_none(), |ui| {
-                    egui::ComboBox::from_id_salt("gemini_access")
-                        .width(135.0)
-                        .selected_text(mode.label())
-                        .show_ui(ui, |ui| {
-                            for choice in [Mode::Chat, Mode::Code, Mode::FullAccess] {
-                                ui.selectable_value(&mut mode, choice, choice.label());
-                            }
-                        });
-                });
-                chat.set_mode(mode);
-            } else {
-                ui.label("Chat").on_hover_text("No project folder");
-            }
+            self.prompt_access(ui);
             ui.label(
                 RichText::new(if self.is_ollama() {
                     "Ollama · Local agent"
@@ -327,7 +313,7 @@ impl ReDox {
             ui.label(RichText::new(&self.status).small().color(theme::muted()));
         }
         if send {
-            self.dispatch_ui_action(redox_studio::actions::UiAction::Send, context);
+            self.dispatch_ui_action(crate::app::ui_actions::UiAction::Send, context);
         }
     }
 }

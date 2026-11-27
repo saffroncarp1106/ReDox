@@ -3,7 +3,6 @@ use std::sync::Arc;
 use eframe::egui::{
     self, Color32, Mesh, Painter, Pos2, Rect, Shape, Stroke, Ui,
     epaint::{Galley, TextShape, Vertex, WHITE_UV},
-    layers::ShapeIdx,
     pos2, vec2,
 };
 use serde::{Deserialize, Serialize};
@@ -13,7 +12,7 @@ const MAX_OFFSET: u8 = 8;
 const SEGMENTS: u32 = 12;
 const PHOSPHORS: [[u8; 3]; 3] = [[255, 45, 40], [40, 255, 72], [45, 105, 255]];
 
-#[derive(Clone, Copy, Deserialize, Serialize)]
+#[derive(Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default)]
 pub(super) struct Settings {
     pub enabled: bool,
@@ -39,6 +38,14 @@ impl Default for Settings {
             curvature: 85,
         }
     }
+}
+
+#[derive(Clone)]
+struct Scanlines {
+    settings: Settings,
+    screen: Rect,
+    pixels: f32,
+    meshes: [Arc<Mesh>; 2],
 }
 
 impl Settings {
@@ -83,54 +90,71 @@ impl Settings {
         });
     }
 
-    pub(super) fn text_start(self, ui: &Ui) -> Option<ShapeIdx> {
-        (self.enabled && self.halo_strength > 0 && self.rgb_offset > 0).then(|| {
-            ui.ctx()
-                .graphics_mut(|layers| layers.entry(ui.layer_id()).next_idx())
-        })
-    }
-
-    pub(super) fn paint(self, ui: &Ui, screen: Rect, text_start: Option<ShapeIdx>) {
-        if !self.enabled {
-            return;
-        }
+    pub(super) fn paint_background(self, ui: &Ui, screen: Rect) {
         let screen = screen.intersect(ui.clip_rect());
-        if !screen.is_positive() {
+        if !self.enabled || !screen.is_positive() {
             return;
         }
         let pixels = ui.ctx().pixels_per_point();
         let curvature = self.curvature(screen);
-        if let Some(start) = text_start {
-            let separation = f32::from(self.rgb_offset.min(MAX_OFFSET)) / pixels;
-            let opacity = f32::from(self.halo_strength.min(100)) / 100.0;
-            ui.ctx().graphics_mut(|layers| {
-                let list = layers.entry(ui.layer_id());
-                for index in start.0..list.next_idx().0 {
-                    list.mutate_shape(ShapeIdx(index), |entry| {
-                        if entry.clip_rect.intersects(screen) {
-                            entry.clip_rect = entry.clip_rect.intersect(screen);
-                            add_halo(&mut entry.shape, separation, opacity);
-                        }
-                    });
-                }
-            });
-        }
         let painter = ui.painter().with_clip_rect(screen);
         if self.scanline_strength > 0 || self.scanline_brightness > 0 || self.scanline_bloom > 0 {
-            self.paint_scanlines(&painter, screen, pixels, curvature);
+            painter.rect_filled(screen, 0, Color32::from_gray(10));
+            let id = ui.id().with("crt_scanlines");
+            let cached = ui.data(|data| data.get_temp::<Scanlines>(id));
+            let scanlines = cached
+                .filter(|cache| {
+                    cache.settings == self && cache.screen == screen && cache.pixels == pixels
+                })
+                .unwrap_or_else(|| {
+                    let cache = Scanlines {
+                        settings: self,
+                        screen,
+                        pixels,
+                        meshes: self
+                            .scanline_meshes(screen, pixels, curvature)
+                            .map(Arc::new),
+                    };
+                    ui.data_mut(|data| data.insert_temp(id, cache.clone()));
+                    cache
+                });
+            for mesh in scanlines.meshes {
+                if !mesh.is_empty() {
+                    painter.add(Shape::Mesh(mesh));
+                }
+            }
         }
         if let Some(curve) = curvature {
             curve.paint_rim(&painter);
         }
     }
 
-    fn paint_scanlines(
+    pub(super) fn draw_galley(
         self,
         painter: &Painter,
-        screen: Rect,
-        pixels: f32,
+        origin: Pos2,
+        galley: Arc<Galley>,
         curve: Option<Curvature>,
     ) {
+        if galley.is_empty() {
+            return;
+        }
+        let mut text = TextShape::new(origin, galley, Color32::WHITE);
+        if let Some(curve) = curve {
+            curve.bend_text(&mut text);
+        }
+        let shape = if self.enabled && self.halo_strength > 0 && self.rgb_offset > 0 {
+            let separation =
+                f32::from(self.rgb_offset.min(MAX_OFFSET)) / painter.ctx().pixels_per_point();
+            let opacity = f32::from(self.halo_strength.min(100)) / 100.0;
+            with_halo(text, separation, opacity)
+        } else {
+            Shape::Text(text)
+        };
+        painter.add(shape);
+    }
+
+    fn scanline_meshes(self, screen: Rect, pixels: f32, curve: Option<Curvature>) -> [Mesh; 2] {
         let mut lines = Mesh::default();
         let mut light = Mesh::default();
         let spacing = self.scanline_spacing.clamp(2, MAX_SPACING) as usize;
@@ -171,11 +195,7 @@ impl Settings {
                 add_band(&mut light, line, curve, core, core);
             }
         }
-        for mesh in [lines, light] {
-            if !mesh.is_empty() {
-                painter.add(Shape::mesh(mesh));
-            }
-        }
+        [lines, light]
     }
 
     pub(super) fn curvature(self, screen: Rect) -> Option<Curvature> {
@@ -193,23 +213,6 @@ impl Settings {
 pub(super) struct Curvature {
     screen: Rect,
     inset: f32,
-}
-
-pub(super) fn draw_galley(
-    painter: &Painter,
-    origin: Pos2,
-    galley: Arc<Galley>,
-    curve: Option<Curvature>,
-) {
-    if let Some(curve) = curve
-        && !galley.is_empty()
-    {
-        let mut text = TextShape::new(origin, galley, Color32::WHITE);
-        curve.bend_text(&mut text);
-        painter.add(Shape::Text(text));
-    } else {
-        painter.galley(origin, galley, Color32::WHITE);
-    }
 }
 
 impl Curvature {
@@ -304,41 +307,26 @@ fn add_quad(mesh: &mut Mesh, corners: [Pos2; 4], colors: [Color32; 4]) {
     mesh.add_triangle(start, start + 2, start + 3);
 }
 
-fn add_halo(shape: &mut Shape, separation: f32, opacity: f32) {
-    match shape {
-        Shape::Text(text)
-            if !text.galley.is_empty()
-                && text.galley.rows.iter().all(|row| {
-                    row.visuals.glyph_vertex_range.len() == row.visuals.mesh.vertices.len()
-                }) =>
+fn with_halo(text: TextShape, separation: f32, opacity: f32) -> Shape {
+    let mut layers = Vec::with_capacity(7);
+    for (spread, strength) in [(1.8, 0.22), (1.0, 0.75)] {
+        let shift = separation * spread;
+        for (offset, [r, g, b]) in [
+            vec2(-shift, 0.0),
+            vec2(0.0, -shift * 0.65),
+            vec2(shift, 0.0),
+        ]
+        .into_iter()
+        .zip(PHOSPHORS)
         {
-            let mut layers = Vec::with_capacity(7);
-            for (spread, strength) in [(1.8, 0.22), (1.0, 0.75)] {
-                let shift = separation * spread;
-                for (offset, [r, g, b]) in [
-                    vec2(-shift, 0.0),
-                    vec2(0.0, -shift * 0.65),
-                    vec2(shift, 0.0),
-                ]
-                .into_iter()
-                .zip(PHOSPHORS)
-                {
-                    let mut ghost = text
-                        .clone()
-                        .with_override_text_color(Color32::from_rgb(r, g, b));
-                    ghost.pos += offset;
-                    ghost.opacity_factor *= opacity * strength;
-                    layers.push(Shape::Text(ghost));
-                }
-            }
-            layers.push(Shape::Text(text.clone()));
-            *shape = Shape::Vec(layers);
+            let mut ghost = text
+                .clone()
+                .with_override_text_color(Color32::from_rgb(r, g, b));
+            ghost.pos += offset;
+            ghost.opacity_factor *= opacity * strength;
+            layers.push(Shape::Text(ghost));
         }
-        Shape::Vec(shapes) => {
-            for shape in shapes {
-                add_halo(shape, separation, opacity);
-            }
-        }
-        _ => {}
     }
+    layers.push(Shape::Text(text));
+    Shape::Vec(layers)
 }

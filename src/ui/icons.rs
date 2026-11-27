@@ -44,10 +44,6 @@ pub enum Icon {
 
 pub fn button(ui: &mut Ui, icon: Icon, tooltip: &str) -> Response {
     let response = button_with_sense(ui, icon, Sense::click()).on_hover_text(tooltip);
-    #[cfg(feature = "design-export")]
-    if let Some(action) = redox_studio::actions::UiAction::from_label(tooltip) {
-        super::design_export::record(ui.ctx(), response.rect, action);
-    }
     response
 }
 

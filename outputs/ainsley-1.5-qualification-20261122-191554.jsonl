@@ -1,0 +1,41 @@
+{"event": "settings", "runs": 5, "endpoint": "http://127.0.0.1:11434", "preferred_model": "Aisnley-Ox-1.5-bbb:exp-invariants", "context_tokens": 64000, "output_tokens": 8192, "cpu_only": false}
+{"event": "start", "run": 1}
+{"event": "status", "run": 1, "seconds": 0.323, "message": "Aisnley-Ox-1-bbb qualification \u00b7 Attempt 1 \u00b7 loading fresh weights"}
+{"event": "status", "run": 1, "seconds": 0.335, "message": "Aisnley-Ox-1-bbb qualification \u00b7 Attempt 1 \u00b7 reasoning 1/10"}
+{"event": "status", "run": 1, "seconds": 54.309, "message": "Aisnley-Ox-1-bbb qualification \u00b7 Reasoning trial 1 failed \u00b7 retrying from trial 1"}
+{"event": "process_elapsed", "run": 1, "seconds": 54.322}
+{"event": "outcome", "run": 1, "outcome": "fail", "seconds": 54.309, "detail": "Aisnley-Ox-1-bbb qualification \u00b7 Reasoning trial 1 failed \u00b7 retrying from trial 1"}
+{"event": "start", "run": 2}
+{"event": "status", "run": 2, "seconds": 0.039, "message": "Aisnley-Ox-1-bbb qualification \u00b7 Attempt 1 \u00b7 loading fresh weights"}
+{"event": "status", "run": 2, "seconds": 1.754, "message": "Aisnley-Ox-1-bbb qualification \u00b7 Attempt 1 \u00b7 reasoning 1/10"}
+{"event": "status", "run": 2, "seconds": 55.965, "message": "Aisnley-Ox-1-bbb qualification \u00b7 Attempt 1 \u00b7 reasoning 2/10"}
+{"event": "status", "run": 2, "seconds": 62.598, "message": "Aisnley-Ox-1-bbb qualification \u00b7 Attempt 1 \u00b7 reasoning 3/10"}
+{"event": "status", "run": 2, "seconds": 74.362, "message": "Aisnley-Ox-1-bbb qualification \u00b7 Attempt 1 \u00b7 reasoning 4/10"}
+{"event": "status", "run": 2, "seconds": 145.015, "message": "Aisnley-Ox-1-bbb qualification \u00b7 Reasoning trial 4 failed \u00b7 retrying from trial 1"}
+{"event": "process_elapsed", "run": 2, "seconds": 145.022}
+{"event": "outcome", "run": 2, "outcome": "fail", "seconds": 145.015, "detail": "Aisnley-Ox-1-bbb qualification \u00b7 Reasoning trial 4 failed \u00b7 retrying from trial 1"}
+{"event": "start", "run": 3}
+{"event": "status", "run": 3, "seconds": 0.038, "message": "Aisnley-Ox-1-bbb qualification \u00b7 Attempt 1 \u00b7 loading fresh weights"}
+{"event": "status", "run": 3, "seconds": 1.707, "message": "Aisnley-Ox-1-bbb qualification \u00b7 Attempt 1 \u00b7 reasoning 1/10"}
+{"event": "status", "run": 3, "seconds": 57.002, "message": "Aisnley-Ox-1-bbb qualification \u00b7 Reasoning trial 1 failed \u00b7 retrying from trial 1"}
+{"event": "process_elapsed", "run": 3, "seconds": 57.007}
+{"event": "outcome", "run": 3, "outcome": "fail", "seconds": 57.002, "detail": "Aisnley-Ox-1-bbb qualification \u00b7 Reasoning trial 1 failed \u00b7 retrying from trial 1"}
+{"event": "start", "run": 4}
+{"event": "status", "run": 4, "seconds": 0.069, "message": "Aisnley-Ox-1-bbb qualification \u00b7 Attempt 1 \u00b7 loading fresh weights"}
+{"event": "status", "run": 4, "seconds": 1.775, "message": "Aisnley-Ox-1-bbb qualification \u00b7 Attempt 1 \u00b7 reasoning 1/10"}
+{"event": "status", "run": 4, "seconds": 56.399, "message": "Aisnley-Ox-1-bbb qualification \u00b7 Reasoning trial 1 failed \u00b7 retrying from trial 1"}
+{"event": "process_elapsed", "run": 4, "seconds": 56.409}
+{"event": "outcome", "run": 4, "outcome": "fail", "seconds": 56.399, "detail": "Aisnley-Ox-1-bbb qualification \u00b7 Reasoning trial 1 failed \u00b7 retrying from trial 1"}
+{"event": "start", "run": 5}
+{"event": "status", "run": 5, "seconds": 0.069, "message": "Aisnley-Ox-1-bbb qualification \u00b7 Attempt 1 \u00b7 loading fresh weights"}
+{"event": "status", "run": 5, "seconds": 1.854, "message": "Aisnley-Ox-1-bbb qualification \u00b7 Attempt 1 \u00b7 reasoning 1/10"}
+{"event": "status", "run": 5, "seconds": 61.492, "message": "Aisnley-Ox-1-bbb qualification \u00b7 Attempt 1 \u00b7 reasoning 2/10"}
+{"event": "status", "run": 5, "seconds": 69.487, "message": "Aisnley-Ox-1-bbb qualification \u00b7 Attempt 1 \u00b7 reasoning 3/10"}
+{"event": "status", "run": 5, "seconds": 81.544, "message": "Aisnley-Ox-1-bbb qualification \u00b7 Attempt 1 \u00b7 reasoning 4/10"}
+{"event": "status", "run": 5, "seconds": 117.71, "message": "Aisnley-Ox-1-bbb qualification \u00b7 Attempt 1 \u00b7 reasoning 5/10"}
+{"event": "status", "run": 5, "seconds": 134.221, "message": "Aisnley-Ox-1-bbb qualification \u00b7 Attempt 1 \u00b7 reasoning 6/10"}
+{"event": "status", "run": 5, "seconds": 171.17, "message": "Aisnley-Ox-1-bbb qualification \u00b7 Attempt 1 \u00b7 reasoning 7/10"}
+{"event": "status", "run": 5, "seconds": 197.079, "message": "Aisnley-Ox-1-bbb qualification \u00b7 Attempt 1 \u00b7 reasoning 8/10"}
+{"event": "status", "run": 5, "seconds": 234.012, "message": "Aisnley-Ox-1-bbb qualification \u00b7 Reasoning trial 8 failed \u00b7 retrying from trial 1"}
+{"event": "process_elapsed", "run": 5, "seconds": 234.017}
+{"event": "outcome", "run": 5, "outcome": "fail", "seconds": 234.012, "detail": "Aisnley-Ox-1-bbb qualification \u00b7 Reasoning trial 8 failed \u00b7 retrying from trial 1"}

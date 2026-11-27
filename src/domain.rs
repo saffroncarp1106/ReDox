@@ -117,6 +117,8 @@ impl Message {
 #[derive(Deserialize, Serialize)]
 pub struct Chat {
     #[serde(default)]
+    saffyos_locked: bool,
+    #[serde(default)]
     pub imported_history: bool,
     #[serde(skip)]
     pub send_after: BTreeMap<Uuid, Instant>,
@@ -180,6 +182,10 @@ struct VersionTail {
 }
 
 impl Chat {
+    pub fn is_saffyos_locked(&self) -> bool {
+        self.saffyos_locked
+    }
+
     pub fn is_blank(&self) -> bool {
         !self.archived
             && self.title == "New chat"
@@ -198,6 +204,7 @@ impl Chat {
             Mode::Chat
         };
         Self {
+            saffyos_locked: false,
             imported_history: false,
             send_after: BTreeMap::new(),
             desktop_tools: false,
@@ -289,6 +296,22 @@ impl Chat {
         self.ollama_checkpoint = tail.ollama_checkpoint;
     }
 
+    fn has_compacted_history(&self) -> bool {
+        self.provider == Provider::Ollama
+            && (self.saffyos_locked || crate::ollama::is_ainsley_interactive(&self.ollama_model))
+    }
+
+    pub fn ollama_context(&self) -> Option<crate::ollama::ContextUsage> {
+        let (id, usage) = self.ollama_usage.context?;
+        let reply = self
+            .messages
+            .iter()
+            .rfind(|message| message.role == Role::Assistant)?;
+        (reply.id == id
+            && reply.model.strip_prefix("Ollama · ") == Some(self.ollama_model.as_str()))
+        .then_some(usage)
+    }
+
     fn reset_variant_contexts(&mut self) {
         for versions in self.prompt_versions.values_mut() {
             for tail in versions.older.iter_mut().chain(&mut versions.newer) {
@@ -339,6 +362,9 @@ impl Chat {
     }
 
     pub fn set_mode(&mut self, mode: Mode) {
+        if self.saffyos_locked {
+            return;
+        }
         let mode = if self.workspace.is_some() {
             mode
         } else {
@@ -352,11 +378,14 @@ impl Chat {
     }
 
     pub fn set_workspace(&mut self, workspace: Option<PathBuf>) {
+        if self.saffyos_locked {
+            return;
+        }
         if self.workspace != workspace {
             if workspace.is_none() {
                 self.mode = Mode::Chat;
             } else if self.workspace.is_none() {
-                self.mode = Mode::Code;
+                self.mode = Mode::FullAccess;
             }
             self.reset_server_thread();
             self.reset_variant_contexts();
@@ -365,6 +394,9 @@ impl Chat {
     }
 
     pub fn set_provider(&mut self, provider: Provider, model: String) {
+        if self.saffyos_locked && provider != Provider::Ollama {
+            return;
+        }
         if self.provider != provider {
             self.reset_server_thread();
             self.reset_variant_contexts();
@@ -500,7 +532,9 @@ impl Session {
     }
 
     pub fn branch_project_chat(&mut self, workspace: &Path) -> Uuid {
-        let belongs = |chat: &&Chat| !chat.archived && chat.workspace.as_deref() == Some(workspace);
+        let belongs = |chat: &&Chat| {
+            !chat.saffyos_locked && !chat.archived && chat.workspace.as_deref() == Some(workspace)
+        };
         let source = self
             .active()
             .filter(belongs)
@@ -532,12 +566,28 @@ impl Session {
     pub fn queue_prompt(&mut self) -> Result<Uuid, String> {
         let chat = self.active_mut().ok_or("Create a chat first.")?;
         let content = chat.draft.trim().to_owned();
-        if chat.archived || (content.is_empty() && chat.attachments.is_empty()) {
+        Self::enqueue(chat, content, true)
+    }
+
+    pub fn queue_saffyos_continuation(&mut self, content: &str) -> Result<Uuid, String> {
+        let chat = self
+            .active_mut()
+            .filter(|chat| chat.saffyos_locked)
+            .ok_or("Open a locked SaffyOS chat first.")?;
+        Self::enqueue(chat, content.into(), false)
+    }
+
+    fn enqueue(chat: &mut Chat, content: String, use_draft: bool) -> Result<Uuid, String> {
+        let attachments = if use_draft {
+            chat.attachments.as_slice()
+        } else {
+            &[]
+        };
+        if chat.archived || (content.is_empty() && attachments.is_empty()) {
             return Err("Enter a prompt in an unarchived chat.".into());
         }
         let bytes = content.len()
-            + chat
-                .attachments
+            + attachments
                 .iter()
                 .map(Attachment::text_bytes)
                 .sum::<usize>()
@@ -559,6 +609,12 @@ impl Session {
             );
         }
         let id = Uuid::new_v4();
+        let attachments = if use_draft {
+            chat.draft.clear();
+            std::mem::take(&mut chat.attachments)
+        } else {
+            Vec::new()
+        };
         chat.messages.push(Message {
             id,
             role: Role::User,
@@ -566,10 +622,9 @@ impl Session {
             status: MessageStatus::Queued,
             error: None,
             model: String::new(),
-            attachments: std::mem::take(&mut chat.attachments),
+            attachments,
             activity: Default::default(),
         });
-        chat.draft.clear();
         Ok(id)
     }
 
@@ -708,7 +763,9 @@ impl Session {
             return Err("Enter a prompt in an unarchived chat.".into());
         }
 
-        let history_bytes: usize = if chat.provider == Provider::Codex && chat.thread_id.is_some() {
+        let history_bytes: usize = if chat.has_compacted_history()
+            || (chat.provider == Provider::Codex && chat.thread_id.is_some())
+        {
             0
         } else {
             chat.messages
@@ -846,7 +903,7 @@ impl Session {
                 file.name()
             ));
         }
-        let history = if source.is_some() {
+        let history = if source.is_some() || chat.has_compacted_history() {
             0
         } else {
             earlier
@@ -920,6 +977,39 @@ impl Session {
         Ok(append_reply(chat, model))
     }
 
+    pub fn retry_saffyos_turn(&mut self, failed: RunId) -> Result<RunId, String> {
+        self.check_idle()?;
+        let model = self.active_run_model()?;
+        let chat = self
+            .active_mut()
+            .filter(|chat| chat.id == failed.chat && chat.saffyos_locked && !chat.archived)
+            .ok_or("Open the original locked SaffyOS chat to retry the turn.")?;
+        let reply = chat
+            .messages
+            .iter_mut()
+            .rev()
+            .find(|message| {
+                matches!(
+                    message.status,
+                    MessageStatus::Failed | MessageStatus::Complete
+                )
+            })
+            .filter(|message| {
+                message.id == failed.message && message.status == MessageStatus::Failed
+            })
+            .ok_or("The failed SaffyOS turn is no longer the latest response.")?;
+
+        reply.status = MessageStatus::Streaming;
+        reply.error = None;
+        reply.content.clear();
+        reply.model = model;
+        reply.activity = Default::default();
+        Ok(RunId {
+            id: Uuid::new_v4(),
+            ..failed
+        })
+    }
+
     pub fn run_message_mut(&mut self, run: RunId) -> Option<&mut Message> {
         self.chats
             .iter_mut()
@@ -957,6 +1047,20 @@ impl Session {
         self.new_chat_in(None);
     }
 
+    pub fn open_saffyos(&mut self, workspace: PathBuf) {
+        if self.active().is_some_and(|chat| {
+            chat.saffyos_locked && !chat.archived && chat.workspace.as_ref() == Some(&workspace)
+        }) {
+            return;
+        }
+        let mut chat = Chat::new(Some(workspace));
+        chat.mode = Mode::Chat;
+        chat.provider = Provider::Ollama;
+        chat.saffyos_locked = true;
+        self.active_chat = Some(chat.id);
+        self.chats.push(chat);
+    }
+
     pub fn new_project_chat(&mut self, workspace: PathBuf) {
         self.new_chat_in(Some(workspace));
     }
@@ -968,7 +1072,8 @@ impl Session {
                 (chat.provider, chat.ollama_model.clone())
             });
         let matches = |chat: &&Chat| {
-            chat.is_blank()
+            !chat.saffyos_locked
+                && chat.is_blank()
                 && chat.workspace == workspace
                 && chat.provider == provider
                 && (provider != Provider::Ollama || chat.ollama_model == model)
@@ -983,6 +1088,7 @@ impl Session {
             return;
         }
         let mut chat = Chat::new(workspace);
+        chat.set_mode(Mode::FullAccess);
         if let Some(active) = self.active() {
             chat.provider = active.provider;
             chat.ollama_model = active.ollama_model.clone();

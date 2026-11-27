@@ -11,8 +11,6 @@ set "REDOX_CARGO=cargo.exe"
 echo Building the debug version of ReDox.
 "%REDOX_CARGO%" build --locked --bin redox --target-dir "%~dp0target"
 if errorlevel 1 goto failed
-"%REDOX_CARGO%" build --locked --features design-export --bin redox-studio-native-preview --target-dir "%~dp0target"
-if errorlevel 1 goto failed
 if not exist "%~dp0target\debug\redox.exe" goto failed
 echo.
 echo Debug ready: "%~dp0target\debug\redox.exe"

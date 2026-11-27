@@ -1,7 +1,6 @@
 use super::*;
 use egui::accesskit::{Action, ActionRequest, NodeId};
 use egui::{Event as InputEvent, Key, Modifiers};
-use redox_studio::scenes::SceneId;
 
 fn frame(ctx: &egui::Context, app: &mut ReDox, events: Vec<InputEvent>) -> egui::FullOutput {
     ctx.run(
@@ -13,7 +12,7 @@ fn frame(ctx: &egui::Context, app: &mut ReDox, events: Vec<InputEvent>) -> egui:
             events,
             ..Default::default()
         },
-        |ctx| app.render_design(ctx),
+        |ctx| app.render_test_frame(ctx),
     )
 }
 
@@ -69,8 +68,8 @@ fn every_builtin_theme_can_edit_cancel_send_and_switch_an_inline_prompt() {
     for theme in ["codex", "gemini", "claude", "win98", "wii"] {
         let ctx = egui::Context::default();
         ctx.enable_accesskit();
-        let mut app = ReDox::design_preview(&ctx, theme);
-        app.prepare_design_scene(SceneId::Conversation);
+        let mut app = ReDox::test_preview(&ctx, theme);
+        app.prepare_test_scene(true);
         app.ui_preferences.hide_update_prompts = true;
         app.session.codex_path = cli.to_string_lossy().into_owned();
         app.runtime = Some(

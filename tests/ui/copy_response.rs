@@ -1,7 +1,6 @@
 use super::*;
 use egui::accesskit::{Action, ActionRequest, NodeId};
 use egui::{Event, Modifiers, PointerButton, Pos2, Rect, Shape, TextureId};
-use redox_studio::scenes::{SceneId, THEMES};
 
 fn frame(ctx: &egui::Context, app: &mut ReDox, time: f64, events: Vec<Event>) -> egui::FullOutput {
     ctx.run(
@@ -11,7 +10,7 @@ fn frame(ctx: &egui::Context, app: &mut ReDox, time: f64, events: Vec<Event>) ->
             events,
             ..Default::default()
         },
-        |ctx| app.render_design(ctx),
+        |ctx| app.render_test_frame(ctx),
     )
 }
 
@@ -76,11 +75,14 @@ fn check_clipboard(output: &egui::FullOutput, expected: &str) {
 
 #[test]
 fn copy_response_confirms_and_resets_in_every_theme() {
-    for theme in THEMES {
+    for theme in crate::app::ui::renderers::RENDERERS
+        .iter()
+        .map(|renderer| renderer.id)
+    {
         let ctx = egui::Context::default();
         ctx.enable_accesskit();
-        let mut app = ReDox::design_preview(&ctx, theme);
-        app.prepare_design_scene(SceneId::Conversation);
+        let mut app = ReDox::test_preview(&ctx, theme);
+        app.prepare_test_scene(true);
         ctx.style_mut(|style| {
             style.interaction.tooltip_delay = 0.0;
             style.interaction.show_tooltips_only_when_still = false;

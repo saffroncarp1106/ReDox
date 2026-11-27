@@ -1,6 +1,6 @@
 [package]
 name = "redox"
-version = "0.2.3"
+version = "0.2.4"
 edition = "2024"
 rust-version = "1.88"
 description = "A native Rust desktop workspace for local coding assistants"
@@ -15,7 +15,6 @@ name = "presence-test"
 path = "src/presence.rs"
 
 [dependencies]
-redox-studio = { path = "src/ui/studio_runtime", default-features = false }
 eframe = { version = "=0.33.0", default-features = false, features = ["accesskit", "default_fonts", "glow", "persistence"] }
 egui_commonmark = { version = "=0.22.0", default-features = false, features = ["pulldown_cmark", "load-images", "embedded_image"] }
 egui_extras = { version = "=0.33.3", default-features = false, features = ["file", "image", "gif", "webp", "svg"] }
@@ -35,6 +34,8 @@ serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros", "process", "io-util", "fs"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 discord-rich-presence = "=1.1.0"
+cap-std = "4.0.3"
+tempfile = "3.27.0"
 
 # Enable the Linux window backends directly. eframe's wayland/x11 feature
 # forwarding also pulls its unused optional WGPU dependencies into Cargo.lock.
@@ -45,7 +46,8 @@ winit = { version = "0.30.12", default-features = false, features = ["wayland-cs
 
 [target.'cfg(windows)'.dependencies]
 open = { version = "5", features = ["shellexecute-on-windows"] }
-windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Media_Audio", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_Security", "Win32_System_JobObjects", "Win32_System_SystemInformation", "Win32_System_Threading"] }
+raw-window-handle = "0.6"
+windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Media_Audio", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_JobObjects", "Win32_System_SystemInformation", "Win32_System_Threading", "Win32_System_WindowsProgramming"] }
 winrt-toast-reborn = "0.3.8"
 
 [build-dependencies]
@@ -58,21 +60,6 @@ debug = "line-tables-only"
 lto = "thin"
 strip = true
 
-[[bin]]
-name = "export-designs"
-path = "src/export_designs.rs"
-test = false
-required-features = ["design-export"]
-
-[[bin]]
-name = "redox-studio-native-preview"
-path = "src/studio_native_preview.rs"
-test = false
-required-features = ["design-export"]
-
 [[example]]
 name = "ollama-bench-runner"
 path = "tests/perf/ollama_bench_runner.rs"
-
-[features]
-design-export = []

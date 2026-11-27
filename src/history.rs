@@ -191,7 +191,10 @@ pub async fn read(
             "threadId":thread,"cursor":cursor,"limit":20,"itemsView":"full","sortDirection":"desc",
         })).await?;
         let mut messages = parse_turns(&turns, entry.model.as_deref().unwrap_or("Codex"))?;
-        for attachment in messages.iter_mut().flat_map(|message| &mut message.attachments) {
+        for attachment in messages
+            .iter_mut()
+            .flat_map(|message| &mut message.attachments)
+        {
             if attachment.path.is_relative() {
                 attachment.path = entry.cwd.join(&attachment.path);
             }
@@ -307,10 +310,13 @@ fn user_content(item: &Value, attachments: &mut Vec<Attachment>) -> String {
                 }
                 None
             }
-            Some("image") => Some(part["url"].as_str().map_or(
-                Cow::Borrowed("[Image attachment unavailable]"),
-                |url| Cow::Owned(crate::media::image_markdown(url)),
-            )),
+            Some("image") => Some(
+                part["url"]
+                    .as_str()
+                    .map_or(Cow::Borrowed("[Image attachment unavailable]"), |url| {
+                        Cow::Owned(crate::media::image_markdown(url))
+                    }),
+            ),
             _ => None,
         };
         if let Some(text) = text {

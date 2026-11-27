@@ -10,12 +10,6 @@ impl ReDox {
         if self.is_editing_message() {
             return false;
         }
-        #[cfg(feature = "design-export")]
-        super::design_export::record(
-            &response.ctx,
-            response.rect,
-            redox_studio::actions::UiAction::Send,
-        );
         let response = response.on_hover_text("Send message · Drag up or right-click to queue");
         let dragged_up = response.dragged_by(egui::PointerButton::Primary)
             && response

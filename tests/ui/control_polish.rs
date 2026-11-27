@@ -1,7 +1,6 @@
 use super::*;
 use egui::accesskit::{Action, ActionRequest};
 use egui::{Event, Key, Modifiers, PointerButton, Pos2, Shape};
-use redox_studio::scenes::{SceneId, THEMES};
 
 fn frame(
     context: &egui::Context,
@@ -74,7 +73,7 @@ fn usage_frame(
 #[test]
 fn usage_meter_shows_remaining_quota_and_opens_details() {
     let ctx = egui::Context::default();
-    let mut app = ReDox::design_preview(&ctx, "codex");
+    let mut app = ReDox::test_preview(&ctx, "codex");
     ctx.style_mut(|style| {
         style.interaction.tooltip_delay = 0.0;
         style.interaction.show_tooltips_only_when_still = false;
@@ -116,12 +115,15 @@ fn usage_meter_shows_remaining_quota_and_opens_details() {
 
 #[test]
 fn square_attachment_button_opens_its_menu_in_every_theme() {
-    for theme in THEMES {
+    for theme in crate::app::ui::renderers::RENDERERS
+        .iter()
+        .map(|renderer| renderer.id)
+    {
         let ctx = egui::Context::default();
         ctx.enable_accesskit();
-        let mut app = ReDox::design_preview(&ctx, theme);
-        app.prepare_design_scene(SceneId::Welcome);
-        let mut render = |events| frame(&ctx, events, |ctx| app.render_design(ctx));
+        let mut app = ReDox::test_preview(&ctx, theme);
+        app.prepare_test_scene(false);
+        let mut render = |events| frame(&ctx, events, |ctx| app.render_test_frame(ctx));
         render(vec![]);
         let output = render(vec![]);
         let (id, node) = output
@@ -152,7 +154,7 @@ fn square_attachment_button_opens_its_menu_in_every_theme() {
 #[test]
 fn checkbox_uses_an_svg_and_preserves_label_click_and_keyboard_toggle() {
     let ctx = egui::Context::default();
-    let _ = ReDox::design_preview(&ctx, "codex");
+    let _ = ReDox::test_preview(&ctx, "codex");
     let mut checked = false;
     let draw = |events, value: &mut bool| {
         let mut response = None;

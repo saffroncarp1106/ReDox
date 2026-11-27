@@ -3,8 +3,8 @@ use std::process::Stdio;
 use std::time::Duration;
 
 use serde_json::{Value, json};
-use tokio::io::AsyncReadExt;
-use tokio::sync::{mpsc, oneshot};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::sync::{Mutex, mpsc, oneshot};
 
 use crate::codex::{Approval, ProviderEvent};
 use crate::domain::Mode;
@@ -13,6 +13,15 @@ const FILE_LIMIT: u64 = 128 * 1024;
 const COMMAND_OUTPUT_LIMIT: u64 = 64 * 1024;
 const DEFAULT_COMMAND_TIMEOUT: u64 = 30;
 const MAX_COMMAND_TIMEOUT: u64 = 24 * 60 * 60;
+static PROJECT_WRITE: Mutex<()> = Mutex::const_new(());
+
+struct StagedEdit(PathBuf);
+
+impl Drop for StagedEdit {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
 
 pub(super) fn definitions(mode: Mode) -> Value {
     let mut tools = vec![
@@ -44,7 +53,28 @@ pub(super) fn definitions(mode: Mode) -> Value {
     json!(tools)
 }
 
-fn definition(name: &str, description: &str, required: &[&str], properties: Value) -> Value {
+pub(super) fn edit_definition() -> Value {
+    definition(
+        "edit_file",
+        "Replace unique exact snippets in one UTF-8 file. Existing write approvals and backups apply.",
+        &["path", "edits"],
+        json!({
+            "path": {"type":"string"},
+            "edits": {"type":"array", "minItems":1, "items":{
+                "type":"object",
+                "required":["old","new"],
+                "properties":{"old":{"type":"string"}, "new":{"type":"string"}}
+            }}
+        }),
+    )
+}
+
+pub(super) fn definition(
+    name: &str,
+    description: &str,
+    required: &[&str],
+    properties: Value,
+) -> Value {
     json!({"type":"function","function":{"name":name,"description":description,"parameters":{"type":"object","required":required,"properties":properties}}})
 }
 
@@ -119,6 +149,131 @@ async fn approve(
     }
 }
 
+async fn read_text(path: &Path) -> Result<String, String> {
+    let metadata = tokio::fs::metadata(path)
+        .await
+        .map_err(|error| error.to_string())?;
+    if !metadata.is_file() {
+        return Err("Select a regular text file.".into());
+    }
+    if metadata.len() > FILE_LIMIT {
+        return Err("File exceeds the 128 KiB limit.".into());
+    }
+    let mut bytes = Vec::new();
+    tokio::fs::File::open(path)
+        .await
+        .map_err(|error| error.to_string())?
+        .take(FILE_LIMIT + 1)
+        .read_to_end(&mut bytes)
+        .await
+        .map_err(|error| error.to_string())?;
+    if bytes.len() as u64 > FILE_LIMIT {
+        return Err("File grew beyond the 128 KiB limit.".into());
+    }
+    String::from_utf8(bytes).map_err(|_| "This tool reads UTF-8 text files only.".into())
+}
+
+async fn preserve_original(path: &Path) -> Result<(), String> {
+    let backup = dirs::data_local_dir()
+        .ok_or("Application data folder unavailable.")?
+        .join("ReDox/agent-backups")
+        .join(uuid::Uuid::new_v4().to_string());
+    tokio::fs::create_dir_all(&backup)
+        .await
+        .map_err(|error| error.to_string())?;
+    tokio::fs::copy(
+        path,
+        backup.join(path.file_name().ok_or("Invalid filename.")?),
+    )
+    .await
+    .map_err(|error| format!("Could not preserve original file: {error}"))?;
+    Ok(())
+}
+
+async fn edit_file(
+    workspace: &Path,
+    supplied: &str,
+    edits: &Value,
+    mode: Mode,
+    sender: &mpsc::Sender<ProviderEvent>,
+) -> Result<String, String> {
+    let path = resolve_path(workspace, supplied, mode, false)?;
+    let original = read_text(&path).await?;
+    let mut content = original.clone();
+    let edits = edits
+        .as_array()
+        .filter(|edits| !edits.is_empty())
+        .ok_or("Provide at least one edit.")?;
+    let mut description = format!("Ollama requests edit_file\n{}", path.display());
+    for (index, edit) in edits.iter().enumerate() {
+        let edit_number = index + 1;
+        let old = edit["old"]
+            .as_str()
+            .filter(|old| !old.is_empty())
+            .ok_or("An edit needs nonempty old text.")?;
+        let new = edit["new"]
+            .as_str()
+            .ok_or("An edit needs replacement text.")?;
+        if old == new {
+            return Err("An edit must change the text.".into());
+        }
+        let start = content.find(old).ok_or_else(|| {
+            format!("Edit {edit_number} has no match. Read the file and copy the current text.")
+        })?;
+        if Some(start) != content.rfind(old) {
+            return Err(format!(
+                "Edit {edit_number} matches more than once. Include more surrounding text."
+            ));
+        }
+        if (content.len() - old.len()).saturating_add(new.len()) as u64 > FILE_LIMIT {
+            return Err("New content exceeds the 128 KiB limit.".into());
+        }
+        content.replace_range(start..start + old.len(), new);
+        description.push_str(&format!("\n\nBefore\n{old}\n\nAfter\n{new}"));
+    }
+    approve(description, mode, sender).await?;
+    let _write = PROJECT_WRITE.lock().await;
+    if resolve_path(workspace, supplied, mode, false)? != path
+        || read_text(&path).await? != original
+    {
+        return Err("The file changed before the edit. Read it again and retry.".into());
+    }
+    preserve_original(&path).await?;
+    let staged = path.with_file_name(format!(".redox-edit-{}.tmp", uuid::Uuid::new_v4()));
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&staged)
+        .map_err(|error| error.to_string())?;
+    let staged = StagedEdit(staged);
+    let mut file = tokio::fs::File::from_std(file);
+    file.write_all(content.as_bytes())
+        .await
+        .map_err(|error| error.to_string())?;
+    file.sync_all().await.map_err(|error| error.to_string())?;
+    drop(file);
+    if resolve_path(workspace, supplied, mode, false)? != path
+        || read_text(&path).await? != original
+    {
+        return Err("The file changed before the edit. Read it again and retry.".into());
+    }
+    let permissions = tokio::fs::metadata(&path)
+        .await
+        .map_err(|error| error.to_string())?
+        .permissions();
+    tokio::fs::set_permissions(&staged.0, permissions)
+        .await
+        .map_err(|error| error.to_string())?;
+    tokio::fs::rename(&staged.0, &path)
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(format!(
+        "Applied {} edits to {}",
+        edits.len(),
+        path.display()
+    ))
+}
+
 pub(super) async fn execute(
     name: &str,
     arguments: &Value,
@@ -167,25 +322,20 @@ pub(super) async fn execute(
         }
         "read_file" => {
             let path = resolve_path(workspace, argument("path")?, mode, false)?;
-            let metadata = std::fs::metadata(&path).map_err(|error| error.to_string())?;
-            if !metadata.is_file() {
-                return Err("Select a regular text file.".into());
+            read_text(&path).await
+        }
+        "edit_file" => {
+            if mode == Mode::Chat {
+                return Err("Read-only mode does not allow changes.".into());
             }
-            if metadata.len() > FILE_LIMIT {
-                return Err("File exceeds the 128 KiB limit.".into());
-            }
-            let mut bytes = Vec::new();
-            tokio::fs::File::open(path)
-                .await
-                .map_err(|error| error.to_string())?
-                .take(FILE_LIMIT + 1)
-                .read_to_end(&mut bytes)
-                .await
-                .map_err(|error| error.to_string())?;
-            if bytes.len() as u64 > FILE_LIMIT {
-                return Err("File grew beyond the 128 KiB limit.".into());
-            }
-            String::from_utf8(bytes).map_err(|_| "This tool reads UTF-8 text files only.".into())
+            edit_file(
+                workspace,
+                argument("path")?,
+                &arguments["edits"],
+                mode,
+                sender,
+            )
+            .await
         }
         "write_file" | "make_directory" => {
             if mode == Mode::Chat {
@@ -210,6 +360,7 @@ pub(super) async fn execute(
                 sender,
             )
             .await?;
+            let _write = PROJECT_WRITE.lock().await;
             let path = resolve_path(workspace, supplied, mode, true)?;
             if name == "make_directory" {
                 tokio::fs::create_dir_all(&path)
@@ -218,19 +369,7 @@ pub(super) async fn execute(
                 return Ok(format!("Created {}", path.display()));
             }
             if path.is_file() {
-                let backup = dirs::data_local_dir()
-                    .ok_or("Application data folder unavailable.")?
-                    .join("ReDox/agent-backups")
-                    .join(uuid::Uuid::new_v4().to_string());
-                tokio::fs::create_dir_all(&backup)
-                    .await
-                    .map_err(|error| error.to_string())?;
-                tokio::fs::copy(
-                    &path,
-                    backup.join(path.file_name().ok_or("Invalid filename.")?),
-                )
-                .await
-                .map_err(|error| format!("Could not preserve original file: {error}"))?;
+                preserve_original(&path).await?;
             }
             tokio::fs::write(&path, content)
                 .await
@@ -312,7 +451,9 @@ async fn run_command(command: &str, cwd: &Path, timeout: u64) -> Result<String, 
         .map_err(|_| format!("Command timed out after {timeout} seconds."))?
 }
 
-async fn read_output(mut reader: impl tokio::io::AsyncRead + Unpin) -> Result<String, String> {
+pub(super) async fn read_output(
+    mut reader: impl tokio::io::AsyncRead + Unpin,
+) -> Result<String, String> {
     let mut bytes = Vec::new();
     (&mut reader)
         .take(COMMAND_OUTPUT_LIMIT)

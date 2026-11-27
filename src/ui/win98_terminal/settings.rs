@@ -139,13 +139,14 @@ pub(super) fn show(context: &egui::Context, app: &mut ReDox) {
         let (preview, _) =
             ui.allocate_exact_size(egui::vec2(ui.available_width(), 56.0), egui::Sense::hover());
         ui.painter().rect_filled(preview, 0, Color32::BLACK);
-        let text_start = draft.crt.text_start(ui);
+        draft.crt.paint_background(ui, preview);
         let painter = ui.painter().with_clip_rect(preview);
         let sample =
             painter.layout_no_wrap("ReDox Terminal".into(), terminal_font(16.0), Color32::WHITE);
         let origin = preview.left_center() + egui::vec2(8.0, -sample.size().y * 0.5);
-        crt::draw_galley(&painter, origin, sample, draft.crt.curvature(preview));
-        draft.crt.paint(ui, preview, text_start);
+        draft
+            .crt
+            .draw_galley(&painter, origin, sample, draft.crt.curvature(preview));
         ui.horizontal(|ui| {
             let apply = ui.add_enabled(caption.is_some(), egui::Button::new("Apply"));
             let cancel = ui.button("Cancel").clicked();

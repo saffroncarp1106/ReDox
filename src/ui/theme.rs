@@ -1,5 +1,4 @@
 use eframe::egui::{self, emath::GuiRounding};
-use redox_studio::native_appearance::{NativeAppearance, ThemeColor};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Palette {
@@ -33,40 +32,6 @@ impl Default for Palette {
     }
 }
 
-impl Palette {
-    fn color_mut(&mut self, token: ThemeColor) -> &mut egui::Color32 {
-        match token {
-            ThemeColor::Background => &mut self.background,
-            ThemeColor::Sidebar => &mut self.sidebar,
-            ThemeColor::Rail => &mut self.rail,
-            ThemeColor::Surface => &mut self.surface,
-            ThemeColor::InputBackground => &mut self.input_background,
-            ThemeColor::Text => &mut self.text,
-            ThemeColor::MenuText => &mut self.menu_text,
-            ThemeColor::Muted => &mut self.muted,
-            ThemeColor::Border => &mut self.border,
-            ThemeColor::Accent => &mut self.blue,
-        }
-    }
-
-    pub(super) fn with_native_appearance(mut self, appearance: &NativeAppearance, theme: &str) -> Self {
-        for token in ThemeColor::ALL {
-            if let Some([r, g, b]) = appearance.theme_color(theme, token) {
-                *self.color_mut(token) = egui::Color32::from_rgb(r, g, b);
-            }
-        }
-        self
-    }
-
-    #[cfg(feature = "design-export")]
-    pub(super) fn captured_colors(mut self) -> std::collections::BTreeMap<ThemeColor, [u8; 3]> {
-        ThemeColor::ALL.into_iter().map(|token| {
-            let [r, g, b, _] = self.color_mut(token).to_srgba_unmultiplied();
-            (token, [r, g, b])
-        }).collect()
-    }
-}
-
 #[derive(Clone, Default, serde::Deserialize, serde::Serialize)]
 #[serde(default)]
 pub struct TextColors {
@@ -95,17 +60,6 @@ pub fn set_palette(palette: Palette) {
 }
 pub(super) fn palette() -> Palette {
     PALETTE.get()
-}
-
-pub(super) fn with_palette<R>(palette: Palette, content: impl FnOnce() -> R) -> R {
-    struct Restore(Palette);
-    impl Drop for Restore {
-        fn drop(&mut self) {
-            PALETTE.set(self.0);
-        }
-    }
-    let _restore = Restore(PALETTE.replace(palette));
-    content()
 }
 
 pub fn background() -> egui::Color32 {
@@ -239,7 +193,10 @@ pub(super) fn checkbox(ui: &mut egui::Ui, checked: &mut bool, label: &str) -> eg
     } else {
         label.into_atoms()
     };
-    atoms.push_left(egui::Atom::custom(icon_id, egui::vec2(spacing.icon_width, height)));
+    atoms.push_left(egui::Atom::custom(
+        icon_id,
+        egui::vec2(spacing.icon_width, height),
+    ));
     let mut layout = egui::AtomLayout::new(atoms)
         .sense(egui::Sense::click())
         .min_size(egui::Vec2::splat(height))
@@ -266,7 +223,11 @@ pub(super) fn checkbox(ui: &mut egui::Ui, checked: &mut bool, label: &str) -> eg
             super::win98::bevel(painter, rect, true);
         } else {
             let active = painted.response.has_focus() || painted.response.hovered();
-            let color = if active { text() } else { muted().gamma_multiply(0.72) };
+            let color = if active {
+                text()
+            } else {
+                muted().gamma_multiply(0.72)
+            };
             let fill = if *checked || active {
                 surface()
             } else {
@@ -380,7 +341,7 @@ pub fn apply(ctx: &egui::Context, layout: &str) {
     fonts
         .families
         .insert(egui::FontFamily::Name("serif".into()), serif_fonts);
-    redox_studio::presentation::typography::register(&mut fonts);
+    super::typography::register(&mut fonts);
     fonts.font_data.insert(
         latex_rust::STIX_TWO_MATH_NAME.into(),
         egui::FontData::from_static(latex_rust::STIX_TWO_MATH_OTF).into(),

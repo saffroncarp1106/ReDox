@@ -5,12 +5,8 @@ use crate::app::ReDox;
 use eframe::egui::{
     self, Align, Color32, FontId, Frame, Layout, Margin, RichText, Sense, Stroke, vec2,
 };
-use redox::domain::{Chat, Message, MessageStatus, Mode, Role};
-#[cfg(feature = "design-export")]
-use redox_studio::native_appearance::{NativeRegionId, ThemeColor};
+use redox::domain::{Chat, Message, MessageStatus, Role};
 use std::time::Duration;
-
-pub(super) mod appearance;
 
 impl ReDox {
     pub(in crate::app) fn conversation(&mut self, context: &egui::Context) {
@@ -77,20 +73,10 @@ impl ReDox {
         }
         self.composer(context, None);
 
-        let use_transcript_surface = self.active_ui.id == "codex"
-            && self
-                .session
-                .active()
-                .is_some_and(|chat| !chat.messages.is_empty());
-        let transcript_surface = if use_transcript_surface {
-            appearance::transcript_surface(context).unwrap_or_else(background)
-        } else {
-            background()
-        };
-        let panel = egui::CentralPanel::default()
+        egui::CentralPanel::default()
             .frame(
                 Frame::NONE
-                    .fill(transcript_surface)
+                    .fill(background())
                     .inner_margin(Margin::symmetric(26, 0)),
             )
             .show(context, |ui| {
@@ -131,25 +117,6 @@ impl ReDox {
 
                 self.chat_transcript(ui, chat.id, 0.0);
             });
-        #[cfg(feature = "design-export")]
-        {
-            super::design_export::record_native_region(
-                context,
-                NativeRegionId::Conversation,
-                panel.response.rect,
-                ThemeColor::Background,
-            );
-            if use_transcript_surface {
-                super::design_export::record_native_appearance(
-                    context,
-                    redox_studio::native_appearance::TRANSCRIPT_SURFACE_ID,
-                    panel.response.rect,
-                    transcript_surface,
-                );
-            }
-        }
-        #[cfg(not(feature = "design-export"))]
-        let _ = panel;
     }
 
     pub(super) fn chat_transcript(
@@ -202,6 +169,7 @@ impl ReDox {
         let mut stop = false;
         let panel =
             egui::TopBottomPanel::bottom(egui::Id::new(("composer", context.viewport_id())))
+                .min_height(if classic { 88.0 } else { 102.0 })
                 .show_separator_line(false)
                 .frame(if classic {
                     Frame::NONE.fill(theme::surface()).inner_margin(8)
@@ -360,45 +328,7 @@ impl ReDox {
                                 ui.spacing_mut().button_padding.y = 0.0;
                             }
                             self.attachment_menu(ui);
-                            if let Some(chat) = self.session.active_mut()
-                                && chat.workspace.is_some()
-                            {
-                                let editable = self.running.is_none();
-                                let color = if chat.mode == Mode::FullAccess {
-                                    Color32::from_rgb(231, 120, 49)
-                                } else {
-                                    text()
-                                };
-                                let (rect, _) =
-                                    ui.allocate_exact_size(vec2(15.0, 18.0), Sense::hover());
-                                icons::paint(ui.painter(), rect.shrink(1.0), Icon::Shield, color);
-                                ui.add_space(5.0);
-                                let mut mode = chat.mode;
-                                ui.add_enabled_ui(editable, |ui| {
-                                    ui.menu_button(
-                                        RichText::new(chat.mode.label()).size(12.0).color(color),
-                                        |ui| {
-                                            for option in [Mode::Chat, Mode::Code, Mode::FullAccess]
-                                            {
-                                                if ui
-                                                    .selectable_value(
-                                                        &mut mode,
-                                                        option,
-                                                        option.label(),
-                                                    )
-                                                    .clicked()
-                                                {
-                                                    ui.close();
-                                                }
-                                            }
-                                        },
-                                    );
-                                });
-                                chat.set_mode(mode);
-                            } else {
-                                ui.label(RichText::new("Chat").size(12.0))
-                                    .on_hover_text("No project folder");
-                            }
+                            self.prompt_access(ui);
 
                             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                 let can_send = !self.is_editing_message()
@@ -521,19 +451,12 @@ impl ReDox {
         } else {
             panel.show(context, contents)
         };
-        #[cfg(feature = "design-export")]
-        super::design_export::record_native_region(
-            context,
-            NativeRegionId::Composer,
-            _panel.response.rect,
-            if classic { ThemeColor::Surface } else { ThemeColor::Background },
-        );
 
         if send {
-            self.dispatch_ui_action(redox_studio::actions::UiAction::Send, context);
+            self.dispatch_ui_action(crate::app::ui_actions::UiAction::Send, context);
         }
         if stop {
-            self.dispatch_ui_action(redox_studio::actions::UiAction::Stop, context);
+            self.dispatch_ui_action(crate::app::ui_actions::UiAction::Stop, context);
         }
     }
 }
@@ -561,7 +484,13 @@ fn render_transcript(
             {
                 return;
             }
-            render_message(ui, message, chat.workspace.as_deref(), codex_mode);
+            render_message(
+                ui,
+                message,
+                chat.workspace.as_deref(),
+                codex_mode,
+                chat.is_saffyos_locked(),
+            );
             if let Some(edit) = &mut edit {
                 edit.row_actions(ui, chat, message);
             }
@@ -574,6 +503,7 @@ fn render_message(
     message: &Message,
     workspace: Option<&std::path::Path>,
     codex_mode: bool,
+    saffyos_locked: bool,
 ) {
     if message.role == Role::User {
         let classic = theme::is_classic(ui);
@@ -592,7 +522,7 @@ fn render_message(
                 .show(ui, |ui| {
                     ui.with_layout(Layout::top_down(Align::Min), |ui| {
                         ui.set_max_width(bubble_width.min(ui.available_width()));
-                        for file in &message.attachments {
+                        for file in message.attachments.iter().filter(|_| !saffyos_locked) {
                             if file.text.is_none() {
                                 super::media::show(
                                     ui,
@@ -609,12 +539,16 @@ fn render_message(
                                 },
                             ));
                         }
-                        if !message.attachments.is_empty() {
-                            ui.add_space(12.0);
+                        if saffyos_locked {
+                            ui.label(&message.content);
+                        } else {
+                            if !message.attachments.is_empty() {
+                                ui.add_space(12.0);
+                            }
+                            ui.push_id(message.id, |ui| {
+                                super::markdown::show_in_workspace(ui, &message.content, workspace)
+                            });
                         }
-                        ui.push_id(message.id, |ui| {
-                            super::markdown::show_in_workspace(ui, &message.content, workspace)
-                        });
                         if message.status == MessageStatus::Queued && message.error.is_none() {
                             ui.label(RichText::new("Pending").small());
                         }
@@ -627,7 +561,7 @@ fn render_message(
         return;
     }
 
-    let show_activity = codex_mode && !message.activity.is_empty();
+    let show_activity = !saffyos_locked && codex_mode && !message.activity.is_empty();
     if message.content.is_empty() && message.status == MessageStatus::Streaming && !show_activity {
         ui.horizontal(|ui| {
             ui.add(egui::Spinner::new().size(14.0));
@@ -638,7 +572,9 @@ fn render_message(
             ui.label(RichText::new(&message.model).small().color(muted()));
         }
         ui.push_id(message.id, |ui| {
-            if show_activity {
+            if saffyos_locked {
+                ui.label(&message.content);
+            } else if show_activity {
                 let mut start = 0;
                 for (index, command) in message.activity.commands.iter().enumerate() {
                     if let Some(text) = message.content.get(start..command.offset) {
@@ -724,7 +660,8 @@ fn copy_response_button(ui: &mut egui::Ui, content: &str) {
 
     if let Some(until) = expires_at {
         if now < until {
-            ui.ctx().request_repaint_after(Duration::from_secs_f64(until - now));
+            ui.ctx()
+                .request_repaint_after(Duration::from_secs_f64(until - now));
             if ui.is_rect_visible(response.rect) {
                 egui::Tooltip::for_widget(&response)
                     .show(|ui| ui.label(RichText::new("Copied").small()));
@@ -744,6 +681,6 @@ fn copy_response_button(ui: &mut egui::Ui, content: &str) {
 #[path = "../../tests/ui/transcript_layout.rs"]
 mod layout_tests;
 
-#[cfg(all(test, feature = "design-export"))]
+#[cfg(test)]
 #[path = "../../tests/ui/copy_response.rs"]
 mod copy_tests;

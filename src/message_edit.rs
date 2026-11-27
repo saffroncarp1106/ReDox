@@ -16,7 +16,7 @@ pub(super) struct MessageEdit {
     pending: Option<(Uuid, tokio::task::JoinHandle<()>)>,
 }
 
-#[cfg(all(test, feature = "design-export"))]
+#[cfg(test)]
 #[path = "../tests/ui/message_edit.rs"]
 mod tests;
 

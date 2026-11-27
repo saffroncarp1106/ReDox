@@ -137,6 +137,67 @@ fn absolute_outside_paths_and_symlink_escapes_are_confined_to_full_access() {
 }
 
 #[tokio::test]
+async fn exact_edits_reject_read_only_and_ambiguous_batches_without_changes() {
+    let root = project();
+    let path = root.join("note.txt");
+    std::fs::write(&path, "before aaa").unwrap();
+    let (sender, mut events) = mpsc::channel(8);
+    let edits = json!({"path": "note.txt", "edits": [
+        {"old": "before", "new": "after"},
+        {"old": "aa", "new": "x"}
+    ]});
+    for mode in [Mode::Chat, Mode::Code] {
+        let result = execute("edit_file", &edits, Some(&root), mode, &sender).await;
+        assert!(result.is_err());
+        assert!(events.try_recv().is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "before aaa");
+    }
+}
+
+#[tokio::test]
+async fn exact_edits_recheck_the_approved_file_and_apply_the_batch_together() {
+    let root = project();
+    let path = root.join("step.rs");
+    std::fs::write(&path, "let count = 1;\nlet size = 2;\n").unwrap();
+    let (sender, mut events) = mpsc::channel(8);
+    let edits = json!({"path": "step.rs", "edits": [
+        {"old": "count = 1", "new": "count = 3"},
+        {"old": "size = 2", "new": "size = 4"}
+    ]});
+    let (stale, ()) = tokio::time::timeout(Duration::from_secs(5), async {
+        tokio::join!(
+            execute("edit_file", &edits, Some(&root), Mode::Code, &sender),
+            async {
+                let Some(ProviderEvent::Approval(approval)) = events.recv().await else {
+                    panic!("Expected edit approval");
+                };
+                assert!(approval.description.contains("count = 3"));
+                assert!(approval.description.contains("size = 4"));
+                std::fs::write(&path, "let count = 1;\nlet size = 2;\n// concurrent edit\n")
+                    .unwrap();
+                approval.response.send(true).unwrap();
+            }
+        )
+    })
+    .await
+    .unwrap();
+    assert!(stale.unwrap_err().contains("file changed"));
+    assert!(
+        std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("count = 1")
+    );
+
+    let result = execute("edit_file", &edits, Some(&root), Mode::FullAccess, &sender).await;
+    assert!(result.unwrap().contains("Applied 2 edits"));
+    assert_eq!(
+        std::fs::read_to_string(path).unwrap(),
+        "let count = 3;\nlet size = 4;\n// concurrent edit\n"
+    );
+    assert_eq!(std::fs::read_dir(root).unwrap().count(), 1);
+}
+
+#[tokio::test]
 async fn command_timeout_is_validated_and_shown_in_approval() {
     let root = project();
     let (sender, mut events) = mpsc::channel(1);

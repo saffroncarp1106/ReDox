@@ -53,6 +53,23 @@ fn blank_chat_reuse_respects_project_and_provider() {
 }
 
 #[test]
+fn project_access_defaults_to_full_and_reopening_preserves_the_selected_mode() {
+    let mut session = Session::default();
+    session.new_project_chat("project".into());
+    let chat = session.active_mut().unwrap();
+    assert!(chat.mode == Mode::FullAccess);
+    chat.set_mode(Mode::Code);
+    session.new_project_chat("project".into());
+    assert!(session.active().unwrap().mode == Mode::Code);
+
+    session.new_chat();
+    let chat = session.active_mut().unwrap();
+    assert!(chat.mode == Mode::Chat);
+    chat.set_workspace(Some("project".into()));
+    assert!(chat.mode == Mode::FullAccess);
+}
+
+#[test]
 fn new_chat_can_send_without_inheriting_the_selected_project() {
     let mut session = Session {
         workspace: Some("selected-project".into()),

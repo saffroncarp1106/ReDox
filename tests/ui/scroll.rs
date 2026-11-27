@@ -139,3 +139,50 @@ fn dragging_the_visible_thumb_moves_the_native_scroll_state() {
         "visible thumb drag did not scroll: {offset}"
     );
 }
+
+#[test]
+fn classic_horizontal_bar_is_below_content_and_can_be_dragged() {
+    let context = egui::Context::default();
+    super::super::win98::apply_style(&context);
+    let frame = |events| {
+        let mut position = (Rect::NOTHING, Rect::NOTHING, 0.0);
+        let output = context.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(340.0, 240.0))),
+                events,
+                ..Default::default()
+            },
+            |context| {
+                egui::CentralPanel::default().show(context, |ui| {
+                    let area = ScrollArea::horizontal().id_salt("wide").show(ui, |ui| {
+                        ui.allocate_exact_size(vec2(950.0, 52.0), Sense::hover()).0
+                    });
+                    position = (area.inner, ui.label("After").rect, area.state.offset.x);
+                });
+            },
+        );
+        (output, position)
+    };
+    frame(vec![]);
+    let (output, (content, after, _)) = frame(vec![]);
+    let arrow = Rect::from_min_size(pos2(content.left(), content.bottom()), Vec2::splat(WIDTH));
+    assert!(
+        output.shapes.iter().any(|entry| {
+            matches!(&entry.shape, egui::Shape::Rect(shape) if shape.rect == arrow)
+        })
+    );
+    assert!(after.top() >= arrow.bottom());
+
+    let start = arrow.center() + vec2(WIDTH + 10.0, 0.0);
+    let button = |pos, pressed| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    frame(vec![egui::Event::PointerMoved(start), button(start, true)]);
+    let end = start + vec2(50.0, 0.0);
+    frame(vec![egui::Event::PointerMoved(end)]);
+    frame(vec![button(end, false)]);
+    assert!(frame(vec![]).1.2 > 100.0);
+}

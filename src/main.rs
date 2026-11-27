@@ -1,3 +1,5 @@
+#![cfg_attr(all(windows, not(test)), windows_subsystem = "windows")]
+
 mod app;
 
 use app::ReDox;
@@ -20,7 +22,7 @@ fn main() -> eframe::Result {
         .with_drag_and_drop(true)
         .with_resizable(true)
         .with_inner_size(size)
-        .with_min_inner_size([900.0, 600.0]);
+        .with_min_inner_size(ReDox::MIN_WINDOW_SIZE);
     #[cfg(target_os = "macos")]
     {
         viewport = viewport

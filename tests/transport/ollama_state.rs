@@ -112,7 +112,7 @@ fn prompt_estimation_benchmark() {
 fn checkpoint_save_benchmark() {
     let path = checkpoint_path(uuid::Uuid::new_v4()).unwrap();
     let journal = Journal {
-        path,
+        path: Some(path.clone()),
         progress: Progress {
             task: "Synthetic benchmark".into(),
             actions: (0..96)
@@ -133,10 +133,33 @@ fn checkpoint_save_benchmark() {
         times.push(start.elapsed().as_secs_f64() * 1_000.0);
     }
     times.sort_by(f64::total_cmp);
-    let written = std::fs::metadata(&journal.path).unwrap().len();
+    let written = std::fs::metadata(&path).unwrap().len();
     println!(
         "CHECKPOINT_SAVE {written} bytes median_ms {:.3}",
         times[times.len() / 2]
     );
-    std::fs::remove_dir_all(journal.path.parent().unwrap()).unwrap();
+    std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+}
+
+#[tokio::test]
+async fn legacy_chat_recovers_the_latest_compression_handoff() {
+    let path = checkpoint_path(uuid::Uuid::new_v4()).unwrap();
+    let journal = Journal::open(path.clone(), None, "Previous task".into(), false)
+        .await
+        .unwrap();
+    journal
+        .save_handoff(
+            "## Remaining tasks\n\nNothing pending.\n\n## Work completed\n\nRECOVERED_DECISION",
+        )
+        .unwrap();
+    journal
+        .save_handoff("## Remaining tasks\n\nOllama reached the 32-round response limit.")
+        .unwrap();
+    let reloaded = Journal::open(path, None, "Follow-up".into(), true)
+        .await
+        .unwrap();
+    let recall = reloaded.progress.recall.unwrap();
+    assert!(recall.summary.contains("RECOVERED_DECISION"));
+    assert!(recall.through.is_none());
+    assert_eq!(reloaded.progress.compressions, 0);
 }

@@ -133,8 +133,8 @@ set. Its I/O still scales with the total checkpoint size.
 The benchmark commands run local fixtures with a single test thread.
 
 ```sh
-cargo test --locked --release --features design-export --bin redox long_chat_benchmark -- --ignored --nocapture --test-threads=1
-cargo test --locked --release --features design-export --bin redox image_chat_benchmark -- --ignored --nocapture --test-threads=1
+cargo test --locked --release --bin redox long_chat_benchmark -- --ignored --nocapture --test-threads=1
+cargo test --locked --release --bin redox image_chat_benchmark -- --ignored --nocapture --test-threads=1
 cargo test --locked --release --lib checkpoint_save_benchmark -- --ignored --nocapture --test-threads=1
 ```
 

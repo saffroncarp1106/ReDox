@@ -59,3 +59,54 @@ fn combined_markdown_and_math_has_a_native_layout() {
     assert!(!output.shapes.is_empty());
     assert!(!output.textures_delta.set.is_empty());
 }
+
+#[test]
+fn wide_table_scrolls_without_moving_the_surrounding_prose() {
+    let context = egui::Context::default();
+    let source = format!(
+        "Before\n\n| Left | Right |\n| --- | --- |\n| {} | End |\n\nAfter",
+        "wide cell ".repeat(30)
+    );
+    let frame = |events| {
+        context.run(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    vec2(300.0, 300.0),
+                )),
+                events,
+                ..Default::default()
+            },
+            |context| {
+                egui::CentralPanel::default().show(context, |ui| show(ui, &source));
+            },
+        )
+    };
+    let locate = |frame: &egui::FullOutput, label| {
+        frame.shapes.iter().find_map(|entry| match &entry.shape {
+            egui::Shape::Text(text) if text.galley.text() == label => {
+                Some((text.pos, entry.clip_rect))
+            }
+            _ => None,
+        })
+    };
+    frame(vec![]);
+    let initial = frame(vec![]);
+    let (before, clip) = locate(&initial, "Left").unwrap();
+    let prose = locate(&initial, "After").unwrap().0;
+    assert!(clip.right() <= 300.0);
+    let mut scrolled = frame(vec![
+        egui::Event::PointerMoved(egui::pos2(100.0, before.y)),
+        egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: vec2(-3000.0, 0.0),
+            modifiers: egui::Modifiers::NONE,
+        },
+    ]);
+    for _ in 0..4 {
+        scrolled = frame(vec![]);
+    }
+    let (end, clip) = locate(&scrolled, "End").expect("last cell after scrolling");
+    assert!(clip.x_range().contains(end.x), "last cell is clipped");
+    assert_eq!(locate(&scrolled, "After").unwrap().0, prose);
+}

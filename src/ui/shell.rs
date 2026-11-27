@@ -7,8 +7,6 @@ use eframe::egui::{
     vec2,
 };
 use redox::domain::Mode;
-#[cfg(feature = "design-export")]
-use redox_studio::native_appearance::{NativeRegionId, ThemeColor};
 use uuid::Uuid;
 
 impl ReDox {
@@ -24,26 +22,23 @@ impl ReDox {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 4.0;
                     if icons::button(ui, Icon::Back, "Previous chat").clicked() {
-                        self.dispatch_ui_action(redox_studio::actions::UiAction::Previous, context);
+                        self.dispatch_ui_action(
+                            crate::app::ui_actions::UiAction::Previous,
+                            context,
+                        );
                     }
                     if icons::button(ui, Icon::Forward, "Next chat").clicked() {
-                        self.dispatch_ui_action(redox_studio::actions::UiAction::Next, context);
+                        self.dispatch_ui_action(crate::app::ui_actions::UiAction::Next, context);
                     }
                     if icons::button(ui, Icon::Panel, "Toggle sidebar").clicked() {
                         self.sidebar_visible = !self.sidebar_visible;
                     }
                     ui.add_space(14.0);
                     self.main_menus(ui, context);
-                    let drag_width = (ui.available_width() - 290.0).max(0.0);
+                    let drag_width = (ui.available_width() - 220.0).max(0.0);
                     let (_, drag) =
                         ui.allocate_exact_size(vec2(drag_width, 30.0), Sense::click_and_drag());
                     super::window_frame::title_drag(context, &drag);
-                    #[cfg(feature = "design-export")]
-                    super::design_export::record(
-                        context,
-                        drag.rect,
-                        redox_studio::actions::UiAction::WindowDrag,
-                    );
 
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         self.title_ui_picker(ui);
@@ -61,14 +56,10 @@ impl ReDox {
                     });
                 });
             });
-        #[cfg(feature = "design-export")]
-        super::design_export::record_native_region(
-            context, NativeRegionId::TitleBar, _panel.response.rect, ThemeColor::Rail,
-        );
     }
 
     pub(super) fn main_menus(&mut self, ui: &mut egui::Ui, context: &egui::Context) {
-        let response = ui.allocate_ui_with_layout(
+        ui.allocate_ui_with_layout(
             vec2(
                 184.0,
                 if !super::theme::is_classic(ui) {
@@ -98,21 +89,21 @@ impl ReDox {
                             .clicked()
                         {
                             self.dispatch_ui_action(
-                                redox_studio::actions::UiAction::NewChat,
+                                crate::app::ui_actions::UiAction::NewChat,
                                 context,
                             );
                             ui.close();
                         }
                         if ui.button("Open project").clicked() {
                             self.dispatch_ui_action(
-                                redox_studio::actions::UiAction::OpenProject,
+                                crate::app::ui_actions::UiAction::OpenProject,
                                 context,
                             );
                             ui.close();
                         }
                         if ui.button("Add files").clicked() {
                             self.dispatch_ui_action(
-                                redox_studio::actions::UiAction::AddFiles,
+                                crate::app::ui_actions::UiAction::AddFiles,
                                 context,
                             );
                             ui.close();
@@ -163,14 +154,6 @@ impl ReDox {
                 });
             },
         );
-        #[cfg(feature = "design-export")]
-        super::design_export::record(
-            ui.ctx(),
-            response.response.rect,
-            redox_studio::actions::UiAction::Menus,
-        );
-        #[cfg(not(feature = "design-export"))]
-        let _ = response;
     }
 
     pub(super) fn title_ui_picker(&mut self, ui: &mut egui::Ui) {
@@ -223,14 +206,14 @@ impl ReDox {
                     .inner
                     .clicked()
                 {
-                    self.dispatch_ui_action(redox_studio::actions::UiAction::NewChat, context);
+                    self.dispatch_ui_action(crate::app::ui_actions::UiAction::NewChat, context);
                 }
                 if rail_button(ui, Icon::Clock, self.show_archived, "Archived chats").clicked() {
                     self.show_archived = true;
                     self.sidebar_visible = true;
                 }
                 if rail_button(ui, Icon::Books, false, "Open project").clicked() {
-                    self.dispatch_ui_action(redox_studio::actions::UiAction::OpenProject, context);
+                    self.dispatch_ui_action(crate::app::ui_actions::UiAction::OpenProject, context);
                 }
                 if ui
                     .add_enabled_ui(self.can_new_chat(), |ui| {
@@ -239,7 +222,7 @@ impl ReDox {
                     .inner
                     .clicked()
                 {
-                    self.dispatch_ui_action(redox_studio::actions::UiAction::NewChat, context);
+                    self.dispatch_ui_action(crate::app::ui_actions::UiAction::NewChat, context);
                     if let Some(chat) = self.session.active_mut() {
                         chat.mode = Mode::Code;
                     }
@@ -286,9 +269,10 @@ impl ReDox {
     }
 
     pub(in crate::app) fn sidebar(&mut self, context: &egui::Context) {
+        let max_width = (context.content_rect().width() * 0.4).clamp(180.0, 360.0);
         let _panel = egui::SidePanel::left("project_sidebar")
-            .default_width(289.0)
-            .width_range(230.0..=360.0)
+            .default_width(289.0_f32.min(max_width))
+            .width_range(230.0_f32.min(max_width)..=max_width)
             .show_separator_line(false)
             .frame(Frame::NONE.fill(sidebar()).inner_margin(Margin {
                 left: 11,
@@ -347,7 +331,7 @@ impl ReDox {
                     })
                     .inner;
                 if new_chat.clicked() {
-                    self.dispatch_ui_action(redox_studio::actions::UiAction::NewChat, context);
+                    self.dispatch_ui_action(crate::app::ui_actions::UiAction::NewChat, context);
                 }
 
                 if self.search_open {
@@ -420,10 +404,6 @@ impl ReDox {
                     Stroke::new(1.0_f32, border()),
                 );
             });
-        #[cfg(feature = "design-export")]
-        super::design_export::record_native_region(
-            context, NativeRegionId::Sidebar, _panel.response.rect, ThemeColor::Sidebar,
-        );
     }
 
     fn project_section(&mut self, ui: &mut egui::Ui, context: &egui::Context) {
@@ -512,12 +492,12 @@ impl ReDox {
             if chats.is_empty() {
                 ui.horizontal(|ui| {
                     ui.add_space(32.0);
-                        let label = if win98::high_contrast() {
-                            muted()
-                        } else {
-                            Color32::from_gray(92)
-                        };
-                        ui.label(RichText::new("No chats").color(label));
+                    let label = if win98::high_contrast() {
+                        muted()
+                    } else {
+                        Color32::from_gray(92)
+                    };
+                    ui.label(RichText::new("No chats").color(label));
                 });
             }
             self.chat_rows(ui, &chats, 32.0);
@@ -525,7 +505,7 @@ impl ReDox {
         }
 
         if sidebar_row(ui, "New project", false, 8.0, Some(Icon::Folder)).clicked() {
-            self.dispatch_ui_action(redox_studio::actions::UiAction::OpenProject, context);
+            self.dispatch_ui_action(crate::app::ui_actions::UiAction::OpenProject, context);
         }
         ui.add_space(25.0);
         section_label(ui, "Recents");

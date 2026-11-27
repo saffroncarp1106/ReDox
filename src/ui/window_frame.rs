@@ -4,6 +4,35 @@ use eframe::egui::{self, CursorIcon, Pos2, Rect, ResizeDirection};
 
 use crate::app::ReDox;
 
+#[cfg(windows)]
+#[path = "window_frame_windows.rs"]
+mod windows;
+
+pub(super) fn set_terminal_fullscreen(context: &egui::Context, fullscreen: bool) {
+    #[cfg(windows)]
+    if fullscreen {
+        windows::set_terminal_fullscreen(true);
+        let maximized = context.input(|input| input.viewport().maximized == Some(true));
+        context.data_mut(|data| {
+            data.insert_temp(egui::Id::new("redox_restore_maximized"), maximized);
+        });
+        if maximized {
+            context.send_viewport_cmd(egui::ViewportCommand::Maximized(false));
+        }
+    }
+    context.send_viewport_cmd(egui::ViewportCommand::Fullscreen(fullscreen));
+    #[cfg(windows)]
+    if !fullscreen {
+        windows::set_terminal_fullscreen(false);
+        let restore = context.data_mut(|data| {
+            data.remove_temp::<bool>(egui::Id::new("redox_restore_maximized"))
+        });
+        if restore == Some(true) {
+            context.send_viewport_cmd(egui::ViewportCommand::Maximized(true));
+        }
+    }
+}
+
 pub(super) fn native_popup(
     context: &egui::Context,
     id: &'static str,
@@ -49,6 +78,21 @@ pub(super) fn native_popup(
 }
 
 pub(super) fn title_drag(context: &egui::Context, response: &egui::Response) {
+    #[cfg(windows)]
+    if windows::register_caption(context, response) {
+        return;
+    }
+
+    let rect = context.viewport_rect();
+    let on_resize_edge = context.input(|input| {
+        !input.viewport().maximized.unwrap_or(false)
+            && !input.viewport().fullscreen.unwrap_or(false)
+            && input.pointer.press_origin().or(input.pointer.interact_pos())
+                .is_some_and(|pointer| resize_hit(rect, pointer).is_some())
+    });
+    if on_resize_edge {
+        return;
+    }
     if response.drag_started() {
         context.send_viewport_cmd(egui::ViewportCommand::StartDrag);
     }
@@ -59,6 +103,20 @@ pub(super) fn title_drag(context: &egui::Context, response: &egui::Response) {
 }
 
 impl ReDox {
+    pub(crate) const MIN_WINDOW_SIZE: [f32; 2] = if cfg!(windows) {
+        [540.0, 420.0]
+    } else {
+        [900.0, 600.0]
+    };
+
+    pub(in crate::app) fn draw_window(&mut self, context: &egui::Context, _frame: &eframe::Frame) {
+        #[cfg(windows)]
+        windows::begin_frame(context, _frame);
+        self.draw_ui(context);
+        #[cfg(windows)]
+        windows::end_frame(context);
+    }
+
     pub(crate) fn app_viewport() -> egui::ViewportBuilder {
         egui::ViewportBuilder::default().with_icon(Arc::clone(Self::app_icon()))
     }
@@ -86,7 +144,11 @@ impl ReDox {
     ) -> egui::ViewportBuilder {
         if viewport
             .inner_size
-            .is_some_and(|size| !size.is_finite() || size.x < 900.0 || size.y < 600.0)
+            .is_some_and(|size| {
+                !size.is_finite()
+                    || size.x < Self::MIN_WINDOW_SIZE[0]
+                    || size.y < Self::MIN_WINDOW_SIZE[1]
+            })
         {
             viewport.inner_size = Some(egui::vec2(1100.0, 900.0));
         }
@@ -94,7 +156,10 @@ impl ReDox {
     }
 
     pub(in crate::app) fn window_interactions(&mut self, context: &egui::Context) {
-        if context.input(|input| input.viewport().maximized.unwrap_or(false)) {
+        if context.input(|input| {
+            input.viewport().maximized.unwrap_or(false)
+                || input.viewport().fullscreen.unwrap_or(false)
+        }) {
             return;
         }
         let Some(pointer) = context.input(|input| input.pointer.hover_pos()) else {
@@ -119,7 +184,7 @@ fn resize_hit(rect: Rect, pointer: Pos2) -> Option<(ResizeDirection, CursorIcon)
     }
     let left = pointer.x - rect.left() <= 6.0;
     let right = rect.right() - pointer.x <= 6.0;
-    let top = pointer.y - rect.top() <= 6.0;
+    let top = pointer.y - rect.top() < 3.0;
     let bottom = rect.bottom() - pointer.y <= 6.0;
     match (left, right, top, bottom) {
         (true, _, true, _) => Some((ResizeDirection::NorthWest, CursorIcon::ResizeNwSe)),

@@ -54,22 +54,13 @@ impl ReDox {
         if self.is_ollama() {
             if let Some(chat) = self.session.active() {
                 let stats = &chat.ollama_usage.last;
-                let model_limit = self
-                    .ollama_models
-                    .iter()
-                    .find(|model| model.name == chat.ollama_model)
-                    .and_then(|model| model.details.context_length);
-                let limit = self.session.ollama.context_for(model_limit);
+                let label = chat
+                    .ollama_context()
+                    .map_or_else(|| "Context usage unavailable".into(), ollama_context_label);
+                ui.label(RichText::new(label).small());
                 ui.label(
                     RichText::new(format!(
-                        "Context: {:.0}% used",
-                        stats.prompt_tokens as f64 / limit as f64 * 100.0
-                    ))
-                    .small(),
-                );
-                ui.label(
-                    RichText::new(format!(
-                        "{} input / {} output tokens",
+                        "Last turn: {} input / {} output tokens",
                         stats.prompt_tokens, stats.output_tokens
                     ))
                     .small(),
@@ -356,7 +347,11 @@ fn lowest_window(info: Option<&UsageInfo>) -> Option<&LimitWindow> {
 }
 
 fn usage_label(window: &LimitWindow) -> String {
-    format!("{} · {:.0}% left", window.label(), window.remaining_percent())
+    format!(
+        "{} · {:.0}% left",
+        window.label(),
+        window.remaining_percent()
+    )
 }
 
 fn usage_window_row(ui: &mut egui::Ui, window: &LimitWindow, now: Option<i64>) {
@@ -373,7 +368,11 @@ fn usage_window_row(ui: &mut egui::Ui, window: &LimitWindow, now: Option<i64>) {
             ui.vertical(|ui| {
                 ui.spacing_mut().item_spacing.y = 2.0;
                 ui.label(label);
-                ui.label(RichText::new(window.reset_label(now)).small().color(muted()));
+                ui.label(
+                    RichText::new(window.reset_label(now))
+                        .small()
+                        .color(muted()),
+                );
             });
         } else {
             ui.label(label.small());
@@ -430,6 +429,20 @@ fn token_count(total: u64) -> String {
     formatted
 }
 
-#[cfg(all(test, feature = "design-export"))]
+#[cfg(test)]
 #[path = "../../tests/ui/control_polish.rs"]
 mod tests;
+
+pub(super) fn ollama_context_label(usage: redox::ollama::ContextUsage) -> String {
+    let estimate = if usage.estimated { "~" } else { "" };
+    let noun = if usage.compressions == 1 {
+        "compression"
+    } else {
+        "compressions"
+    };
+    format!(
+        "{estimate}{:.0}% context left · {} {noun}",
+        usage.remaining_percent(),
+        usage.compressions
+    )
+}

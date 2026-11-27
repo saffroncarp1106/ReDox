@@ -2,14 +2,14 @@ use eframe::egui;
 
 use crate::app::ReDox;
 
-pub(super) struct Renderer {
+pub(in crate::app) struct Renderer {
     pub id: &'static str,
     pub config: &'static str,
     pub rail: fn(&mut ReDox, &egui::Context),
     pub conversation: fn(&mut ReDox, &egui::Context),
 }
 
-pub(super) const RENDERERS: &[Renderer] = &[
+pub(in crate::app) const RENDERERS: &[Renderer] = &[
     Renderer {
         id: "codex",
         config: include_str!("layouts/codex.json"),

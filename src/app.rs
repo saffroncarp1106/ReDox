@@ -27,23 +27,6 @@ use ui::theme;
 
 const STORAGE_KEY: &str = "redox.session.v1";
 
-#[cfg(feature = "design-export")]
-pub fn export_designs(destination: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
-    ui::design_export::export(destination)
-}
-
-#[cfg(feature = "design-export")]
-pub fn studio_native_preview(
-    theme: &str,
-    scene: &str,
-    width: u32,
-    height: u32,
-    output: &std::path::Path,
-    appearance: redox_studio::native_appearance::NativeAppearance,
-) -> Result<(), Box<dyn std::error::Error>> {
-    ui::design_export::native_preview(theme, scene, width, height, output, appearance)
-}
-
 enum Event {
     OllamaModels(u64, String, Result<Vec<ollama::Model>, String>),
     UiImport(Result<String, String>),
@@ -57,13 +40,57 @@ enum Event {
     MessageEditFork(uuid::Uuid, Result<history::CutoffFork, String>),
     Models(Result<ConnectionInfo, String>),
     Logout(Result<(), String>),
-    Workspace(Result<Option<PathBuf>, String>),
+    Workspace(Option<uuid::Uuid>, Result<Option<PathBuf>, String>),
     Attachments(uuid::Uuid, Result<Vec<Attachment>, String>),
     Usage(Result<UsageInfo, String>),
     CodexExecutable(Option<PathBuf>),
 }
 
+const SAFFYOS_CONTINUATIONS: &[&str] = &[
+    "Continue working toward your goals, Ainsley.",
+    "Keep working toward your goals, Ainsley. Take the next useful step.",
+    "Ainsley, review your progress and continue toward your goals.",
+    "Continue from where you left off, Ainsley, and advance your goals.",
+];
+
+#[derive(Clone, Copy)]
+enum SaffyosStep {
+    Discover,
+    Continue,
+    Retry(RunId),
+}
+
+struct SaffyosLoop {
+    chat: uuid::Uuid,
+    next_prompt: usize,
+    due: Option<Instant>,
+    step: SaffyosStep,
+    failures: u32,
+    lifetime: tokio::sync::watch::Sender<()>,
+}
+
+impl SaffyosLoop {
+    fn new(chat: uuid::Uuid) -> Self {
+        Self {
+            chat,
+            next_prompt: 0,
+            due: None,
+            step: SaffyosStep::Discover,
+            failures: 0,
+            lifetime: tokio::sync::watch::Sender::new(()),
+        }
+    }
+
+    fn wait_after_failure(&mut self) -> Duration {
+        let delay = Duration::from_secs((2 << self.failures.min(5)).min(60));
+        self.failures = self.failures.saturating_add(1);
+        self.due = Some(Instant::now() + delay);
+        delay
+    }
+}
+
 pub struct ReDox {
+    saffyos_loop: Option<SaffyosLoop>,
     resource_limiter: redox::resources::Limiter,
     resource_draft: redox::resources::Settings,
     presence: redox::discord_presence::Presence,
@@ -79,6 +106,8 @@ pub struct ReDox {
     ollama_error: Option<String>,
     ollama_endpoint: Option<String>,
     ollama_generation: u64,
+    ollama_discovery_task: Option<tokio::task::AbortHandle>,
+    ollama_redox_chat: Option<uuid::Uuid>,
     skin_editor: Option<ui::skins::Editor>,
     skin_saved: Option<String>,
     active_ui: ui::packs::Pack,
@@ -114,10 +143,12 @@ pub struct ReDox {
     picking_workspace: bool,
     picking_files: bool,
     attachment_error: Option<String>,
+    attachment_limit_notice: Option<(uuid::Uuid, f64)>,
     settings_open: bool,
     about: ui::About,
     show_archived: bool,
     status: String,
+    ollama_stage: Option<&'static str>,
     runtime: Option<tokio::runtime::Runtime>,
     run_sender: tokio::sync::mpsc::Sender<RunEvent>,
     run_receiver: tokio::sync::mpsc::Receiver<RunEvent>,
@@ -154,19 +185,16 @@ impl ReDox {
         context: &eframe::CreationContext<'_>,
         capture_path: Option<PathBuf>,
         restart_request: std::sync::Arc<std::sync::Mutex<bool>>,
-        design: Option<&str>,
+        test_layout: Option<&str>,
     ) -> Self {
         let mut ui_preferences: ui::Preferences = context
             .storage
             .and_then(|storage| eframe::get_value(storage, ui::PREFERENCES_KEY))
             .unwrap_or_default();
         ui_preferences.normalize();
-        if design.is_some() {
-            ui_preferences.follow_studio = false;
-        }
         let ui_folder = ui::packs::root();
         let ui_catalog = ui::packs::discover(&ui_folder);
-        let selected = design
+        let selected = test_layout
             .map(str::to_owned)
             .or_else(|| {
                 std::env::args().find_map(|arg| arg.strip_prefix("--ui=").map(str::to_owned))
@@ -192,7 +220,7 @@ impl ReDox {
         }
         theme::set_palette(palette);
         theme::apply(&context.egui_ctx, &active_ui.config.layout);
-        if design.is_none() {
+        if test_layout.is_none() {
             context
                 .egui_ctx
                 .options_mut(|options| options.reduce_texture_memory = true);
@@ -241,15 +269,15 @@ impl ReDox {
         session.recover();
         session.resources.normalize();
         let resource_limiter = redox::resources::Limiter::new(&session.resources);
-        if design.is_none() {
+        if test_layout.is_none() {
             session.codex_path = codex::resolve_executable(&session.codex_path);
         }
         if session.active_chat.is_none() {
             session.new_chat();
         }
 
-        let runtime = if design.is_some() {
-            Err(std::io::Error::other("Offline design export"))
+        let runtime = if test_layout.is_some() {
+            Err(std::io::Error::other("Offline test fixture"))
         } else {
             tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
@@ -281,6 +309,9 @@ impl ReDox {
             ollama_error: None,
             ollama_endpoint: None,
             ollama_generation: 0,
+            ollama_discovery_task: None,
+            ollama_redox_chat: None,
+            saffyos_loop: None,
             skin_editor: None,
             skin_saved: None,
             active_ui,
@@ -316,10 +347,12 @@ impl ReDox {
             picking_workspace: false,
             picking_files: false,
             attachment_error: None,
+            attachment_limit_notice: None,
             settings_open: false,
             about: ui::About::default(),
             show_archived: false,
             status,
+            ollama_stage: None,
             runtime: runtime.ok(),
             run_sender,
             run_receiver,
@@ -343,7 +376,7 @@ impl ReDox {
             ui_preferences,
             settings_page: ui::SettingsPage::default(),
         };
-        if design.is_none() {
+        if test_layout.is_none() {
             app.refresh_models(&context.egui_ctx);
             app.refresh_ollama(&context.egui_ctx);
         } else {
@@ -357,8 +390,8 @@ impl ReDox {
         app
     }
 
-    #[cfg(feature = "design-export")]
-    pub fn design_preview(context: &egui::Context, id: &str) -> Self {
+    #[cfg(test)]
+    pub fn test_preview(context: &egui::Context, id: &str) -> Self {
         Self::new_internal(
             &eframe::CreationContext::_new_kittest(context.clone()),
             None,
@@ -366,43 +399,28 @@ impl ReDox {
             Some(id),
         )
     }
-    #[cfg(feature = "design-export")]
-    pub fn prepare_design_scene(&mut self, scene: redox_studio::scenes::SceneId) {
-        use redox_studio::scenes::SceneId;
+    #[cfg(test)]
+    pub fn prepare_test_scene(&mut self, conversation: bool) {
         self.ui_preferences.floating_windows = false;
-        self.ui_preferences.studio_skin = None;
         self.ui_preferences.win98_unlocked = true;
-        self.ui_preferences.agents_open = scene == SceneId::Agents;
-        self.sidebar_visible = scene == SceneId::History || self.active_ui.config.layout != "win98";
-        self.settings_open = !matches!(
-            scene,
-            SceneId::Welcome | SceneId::Conversation | SceneId::Agents | SceneId::History
-        );
-        self.settings_page = match scene {
-            SceneId::Models => ui::SettingsPage::Models,
-            SceneId::Workspace => ui::SettingsPage::Workspace,
-            SceneId::Appearance => ui::SettingsPage::Appearance,
-            SceneId::Cursors => ui::SettingsPage::Cursors,
-            SceneId::Advanced => ui::SettingsPage::Advanced,
-            SceneId::Updates => ui::SettingsPage::Updates,
-            SceneId::About => ui::SettingsPage::About,
-            _ => ui::SettingsPage::Account,
-        };
-        self.account = "Studio preview account".into();
+        self.ui_preferences.agents_open = false;
+        self.sidebar_visible = self.active_ui.config.layout != "win98";
+        self.settings_open = false;
+        self.account = "Test account".into();
         self.signed_in = true;
-        self.models = vec!["studio-demo".into()];
+        self.models = vec!["test-demo".into()];
         self.model_details = vec![serde_json::from_value(serde_json::json!({
-            "model":"studio-demo", "display_name":"Studio demo model", "default_reasoning_effort":"medium",
+            "model":"test-demo", "display_name":"Test demo model", "default_reasoning_effort":"medium",
             "supported_reasoning_efforts":[{"reasoning_effort":"low","description":"Quick dummy response"},
                 {"reasoning_effort":"medium","description":"Balanced dummy response"},
                 {"reasoning_effort":"high","description":"Detailed dummy response"}]
         })).expect("Demo model")];
-        self.session.model = "studio-demo".into();
+        self.session.model = "test-demo".into();
         if let Some(chat) = self.session.active_mut() {
             chat.messages.clear();
             chat.draft.clear();
-            if scene == SceneId::Conversation {
-                chat.title = "Studio playground".into();
+            if conversation {
+                chat.title = "Test conversation".into();
                 for (role, text) in [
                     (
                         redox::domain::Role::User,
@@ -410,7 +428,7 @@ impl ReDox {
                     ),
                     (
                         redox::domain::Role::Assistant,
-                        "Yatta yatta. Larp larp. This is a local preview response.\n\nYou can edit the skin while experimenting with this conversation.",
+                        "Yatta yatta. Larp larp. This is a local preview response.\n\nThis conversation uses synthetic test data.",
                     ),
                 ] {
                     chat.messages.push(redox::domain::Message {
@@ -419,7 +437,7 @@ impl ReDox {
                         content: text.into(),
                         status: redox::domain::MessageStatus::Complete,
                         error: None,
-                        model: "studio-demo".into(),
+                        model: "test-demo".into(),
                         attachments: vec![],
                         activity: Default::default(),
                     });
@@ -427,23 +445,9 @@ impl ReDox {
             }
         }
     }
-    #[cfg(feature = "design-export")]
-    pub fn render_design(&mut self, context: &egui::Context) {
-        context.data_mut(|d| {
-            d.remove::<Vec<(egui::Rect, redox_studio::actions::UiAction)>>(egui::Id::new(
-                "export_controls",
-            ))
-        });
+    #[cfg(test)]
+    pub fn render_test_frame(&mut self, context: &egui::Context) {
         self.draw_ui(context);
-        if let Some(id) = self.prompt_input_id
-            && let Some(response) = context.read_response(id)
-        {
-            ui::design_export::record(
-                context,
-                response.rect,
-                redox_studio::actions::UiAction::Composer,
-            );
-        }
     }
 
     fn scan_ui(&mut self) {
@@ -496,7 +500,6 @@ impl ReDox {
             return;
         }
         self.ui_preferences.ui = id.to_owned();
-        self.ui_preferences.studio_skin = None;
         if let Ok(mut restart) = self.restart_request.lock() {
             *restart = true;
         }
@@ -601,6 +604,13 @@ impl ReDox {
             }
             return;
         }
+        if self
+            .session
+            .active_chat
+            .is_some_and(|chat| self.saffyos_waiting(chat))
+        {
+            return;
+        }
         if self.can_start_prompt()
             && let Err(error) = self.start_prompt(context, None)
         {
@@ -610,7 +620,10 @@ impl ReDox {
     }
 
     fn can_start_prompt(&self) -> bool {
-        self.can_edit_messages() && self.runtime.is_some()
+        self.can_edit_messages()
+            && self.runtime.is_some()
+            && (self.ollama_redox_chat.is_none()
+                || self.ollama_redox_chat != self.session.active_chat)
     }
 
     fn start_prompt(
@@ -645,7 +658,23 @@ impl ReDox {
         let runtime = self.runtime.as_ref().unwrap();
         let chat = self.session.active().unwrap();
 
-        let request = if chat.provider == Provider::Ollama {
+        let loop_run = self
+            .saffyos_loop
+            .as_mut()
+            .filter(|state| state.chat == id.chat);
+        let looping = loop_run.is_some();
+        if let Some(state) = loop_run {
+            state.due = None;
+        }
+
+        let request = if chat.is_saffyos_locked() {
+            let request = ollama::Request::from_chat(chat, self.session.ollama.clone());
+            run::Request::Ollama(if looping {
+                request.with_saffyos_loop_recovery()
+            } else {
+                request
+            })
+        } else if chat.provider == Provider::Ollama {
             let mut request = ollama::Request::from_chat(chat, self.session.ollama.clone());
             request.desktop = self.session.desktop.clone();
             run::Request::Ollama(request)
@@ -678,6 +707,7 @@ impl ReDox {
             self.run_sender.clone(),
             context.clone(),
         ));
+        self.ollama_stage = (chat.provider == Provider::Ollama).then_some("Preparing Ollama…");
         self.status = "Generating...".into();
     }
 
@@ -686,13 +716,19 @@ impl ReDox {
             return;
         }
         let now = Instant::now();
-        let chats = || self.session.chats.iter().filter(|chat| !chat.archived);
+        let chats = || {
+            self.session.chats.iter().filter(|chat| {
+                !chat.archived
+                    && Some(chat.id) != self.ollama_redox_chat
+                    && !self.saffyos_waiting(chat.id)
+            })
+        };
         let ready =
             |chat: &redox::domain::Chat| chat.ready_queued(now).map(|message| (chat.id, message));
         let next = self
             .session
             .active()
-            .filter(|chat| !chat.archived)
+            .filter(|chat| !chat.archived && !self.saffyos_waiting(chat.id))
             .and_then(ready)
             .or_else(|| chats().find_map(ready));
         if let Some((chat, message)) = next {
@@ -709,14 +745,105 @@ impl ReDox {
         }
     }
 
+    fn saffyos_waiting(&self, chat: uuid::Uuid) -> bool {
+        self.saffyos_loop
+            .as_ref()
+            .is_some_and(|state| state.chat == chat && !matches!(state.step, SaffyosStep::Continue))
+    }
+
+    fn dispatch_saffyos_continuation(&mut self, context: &egui::Context) {
+        let Some(state) = self.saffyos_loop.as_ref() else {
+            return;
+        };
+        let chat = state.chat;
+        if !self
+            .session
+            .chats
+            .iter()
+            .any(|entry| entry.id == chat && !entry.archived)
+        {
+            self.saffyos_loop = None;
+            return;
+        }
+        let Some(due) = state.due else {
+            return;
+        };
+        if !self.can_edit_messages()
+            || self.runtime.is_none()
+            || self.ollama_redox_chat == Some(chat)
+            || self.is_editing_message()
+        {
+            return;
+        }
+        let remaining = due.saturating_duration_since(Instant::now());
+        if !remaining.is_zero() {
+            context.request_repaint_after(remaining);
+            return;
+        }
+        let step = state.step;
+        let prompt = SAFFYOS_CONTINUATIONS[state.next_prompt];
+        if matches!(step, SaffyosStep::Discover) {
+            self.request_ollama_models(context, Some(chat));
+            return;
+        }
+
+        let selected = self.session.active_chat.replace(chat);
+        let result = match step {
+            SaffyosStep::Retry(failed) => self.session.retry_saffyos_turn(failed).map(|id| {
+                self.launch_prepared_prompt(context, id);
+            }),
+            _ => self
+                .session
+                .queue_saffyos_continuation(prompt)
+                .and_then(|message| {
+                    self.start_prompt(context, Some(message)).inspect_err(|_| {
+                        if let Some(chat) = self.session.active_mut() {
+                            chat.messages.retain(|entry| entry.id != message);
+                        }
+                    })
+                }),
+        };
+        self.session.active_chat = selected;
+        let state = self.saffyos_loop.as_mut().unwrap();
+        match result {
+            Err(error) => {
+                let delay = state.wait_after_failure();
+                self.status = format!(
+                    "SaffyOS auto-loop will retry in {}s. {error}",
+                    delay.as_secs()
+                );
+                context.request_repaint_after(delay);
+            }
+            Ok(()) if matches!(step, SaffyosStep::Continue) => {
+                state.next_prompt = (state.next_prompt + 1) % SAFFYOS_CONTINUATIONS.len();
+            }
+            Ok(()) => {}
+        }
+    }
+
     fn stop_response(&mut self) {
+        let stopped_loop = self.saffyos_loop.as_ref().is_some_and(|state| {
+            Some(state.chat) == self.session.active_chat
+                || self
+                    .running
+                    .as_ref()
+                    .is_some_and(|run| run.id.chat == state.chat)
+        });
+        if stopped_loop {
+            self.saffyos_loop = None;
+            self.status = "SaffyOS auto-loop stopped.".into();
+        }
         self.approval = None;
         if let Some(running) = self.running.take() {
             running.cancel();
             self.session.stop_queued(running.id.chat);
             self.session
                 .finish_run(running.id, MessageStatus::Cancelled, None);
-            self.status = "Cancelled. Partial response kept.".into();
+            self.status = if stopped_loop {
+                "SaffyOS auto-loop stopped. Partial response kept.".into()
+            } else {
+                "Cancelled. Partial response kept.".into()
+            };
         }
         self.desktop_overlay = None;
     }
@@ -734,9 +861,23 @@ impl ReDox {
     }
 
     fn refresh_ollama(&mut self, context: &egui::Context) {
+        self.request_ollama_models(context, None);
+    }
+
+    fn request_ollama_models(&mut self, context: &egui::Context, redox_chat: Option<uuid::Uuid>) {
         let Some(runtime) = &self.runtime else {
             return;
         };
+        if let Some(task) = self.ollama_discovery_task.take() {
+            task.abort();
+        }
+        self.ollama_redox_chat = redox_chat;
+        let locked = redox_chat.is_some_and(|id| {
+            self.session
+                .chats
+                .iter()
+                .any(|chat| chat.id == id && chat.is_saffyos_locked())
+        });
         self.ollama_generation += 1;
         let generation = self.ollama_generation;
         let endpoint = self
@@ -751,13 +892,28 @@ impl ReDox {
         self.ollama_error = None;
         self.ollama_endpoint = None;
         self.ollama_models.clear();
+        let recovery = self
+            .saffyos_loop
+            .as_ref()
+            .filter(|state| Some(state.chat) == redox_chat)
+            .map(|state| state.lifetime.subscribe());
         let sender = self.sender.clone();
         let context = context.clone();
-        runtime.spawn(async move {
-            let result = ollama::list_models(&endpoint).await;
+        let task = runtime.spawn(async move {
+            let result = if let Some(mut recovery) = recovery {
+                tokio::select! {
+                    result = ollama::list_saffyos_loop_models(&endpoint) => result,
+                    _ = recovery.changed() => Err("SaffyOS auto-loop stopped.".into()),
+                }
+            } else if locked {
+                ollama::list_saffyos_models(&endpoint).await
+            } else {
+                ollama::list_models(&endpoint).await
+            };
             let _ = sender.send(Event::OllamaModels(generation, endpoint, result));
             context.request_repaint();
         });
+        self.ollama_discovery_task = Some(task.abort_handle());
     }
 
     fn use_ollama(&mut self, new_chat: bool) {
@@ -877,6 +1033,10 @@ impl ReDox {
             return;
         }
         if let Some(chat) = self.session.active_mut() {
+            if chat.is_saffyos_locked() {
+                self.status = "Locked SaffyOS requires local Ollama.".into();
+                return;
+            }
             chat.set_provider(Provider::Codex, String::new());
         }
         self.status = "This chat uses Codex / ChatGPT.".into();
@@ -1062,6 +1222,10 @@ impl ReDox {
     }
 
     fn pick_workspace(&mut self, context: &egui::Context) {
+        self.pick_workspace_for(context, None);
+    }
+
+    fn pick_workspace_for(&mut self, context: &egui::Context, chat: Option<uuid::Uuid>) {
         if self.picking_workspace {
             return;
         }
@@ -1079,13 +1243,13 @@ impl ReDox {
                 .transpose()
                 .map_err(|error| format!("Could not open workspace: {error}"));
 
-            let _ = sender.send(Event::Workspace(result));
+            let _ = sender.send(Event::Workspace(chat, result));
             context.request_repaint();
         });
     }
 
     fn pick_files(&mut self, context: &egui::Context) {
-        if self.picking_files {
+        if self.saffyos_blocks_attachments() || self.picking_files {
             return;
         }
         if self.session.active().is_none() {
@@ -1110,7 +1274,37 @@ impl ReDox {
         });
     }
 
+    fn report_attachment_error(
+        &mut self,
+        context: &egui::Context,
+        chat_id: uuid::Uuid,
+        error: String,
+    ) {
+        if !self.terminal_is_open(context) {
+            self.attachment_error = Some(error);
+        } else if error == attachment_limit_message() {
+            let start = context.input(|input| input.time);
+            self.attachment_limit_notice = Some((chat_id, start));
+            self.attachment_error = None;
+        }
+    }
+
+    fn saffyos_blocks_attachments(&mut self) -> bool {
+        if self
+            .session
+            .active()
+            .is_some_and(|chat| chat.is_saffyos_locked())
+        {
+            self.attachment_error = Some("Locked SaffyOS accepts text prompts only.".into());
+            return true;
+        }
+        false
+    }
+
     fn attach_dropped_files(&mut self, paths: Vec<PathBuf>, context: &egui::Context) {
+        if self.saffyos_blocks_attachments() {
+            return;
+        }
         if self.picking_files {
             self.attachment_error = Some(
                 "Wait for the current attachments to finish loading, then drop files again.".into(),
@@ -1135,6 +1329,13 @@ impl ReDox {
     }
 
     fn paste_clipboard_attachments(&mut self, context: &egui::Context) -> bool {
+        if self
+            .session
+            .active()
+            .is_some_and(|chat| chat.is_saffyos_locked())
+        {
+            return false;
+        }
         let payload = match redox::clipboard::capture() {
             Ok(Some(payload)) => payload,
             Ok(None) => return false,
@@ -1220,11 +1421,17 @@ impl ReDox {
                     Update::Approval(approval) => {
                         self.approval = Some(approval);
                         self.approval_details_open = false;
+                        self.ollama_stage = None;
                         self.status = "Waiting for your approval.".into();
                         continue;
                     }
                     Update::Status(text) => {
+                        self.ollama_stage = None;
                         self.status = text;
+                        continue;
+                    }
+                    Update::OllamaStage(stage) => {
+                        self.ollama_stage = Some(stage);
                         continue;
                     }
                     _ => {}
@@ -1239,7 +1446,11 @@ impl ReDox {
                     .rev()
                     .find(|chat| chat.id == id.chat);
                 let local = chat.is_some_and(|chat| chat.provider == Provider::Ollama);
-                if completed {
+                let looping = self
+                    .saffyos_loop
+                    .as_ref()
+                    .is_some_and(|state| state.chat == id.chat);
+                if completed && !looping {
                     redox::notifications::response_complete();
                 }
                 self.running = None;
@@ -1260,7 +1471,27 @@ impl ReDox {
                 if !local {
                     self.refresh_history(context, false);
                 }
-                if !completed {
+                if let Some(state) = self
+                    .saffyos_loop
+                    .as_mut()
+                    .filter(|state| state.chat == id.chat)
+                {
+                    if completed {
+                        state.step = SaffyosStep::Continue;
+                        state.failures = 0;
+                        state.due = Some(Instant::now() + Duration::from_secs(1));
+                        self.status = "SaffyOS auto-loop is waiting for the next turn.".into();
+                    } else {
+                        state.step = SaffyosStep::Retry(id);
+                        let delay = state.wait_after_failure();
+                        self.status = format!(
+                            "SaffyOS auto-loop will retry in {}s. {}",
+                            delay.as_secs(),
+                            self.status,
+                        );
+                    }
+                }
+                if !completed && !looping {
                     self.session.stop_queued(id.chat);
                 }
             }
@@ -1272,7 +1503,10 @@ impl ReDox {
                     if generation != self.ollama_generation {
                         continue;
                     }
+                    self.ollama_discovery_task = None;
                     self.ollama_connecting = false;
+                    let endpoint_matches =
+                        endpoint == self.session.ollama.endpoint.trim().trim_end_matches('/');
                     match result {
                         Ok(models) => {
                             if !models
@@ -1292,6 +1526,9 @@ impl ReDox {
                             self.ollama_endpoint = Some(endpoint);
                         }
                         Err(error) => self.ollama_error = Some(error),
+                    }
+                    if let Some(chat) = self.ollama_redox_chat.take() {
+                        self.finish_terminal_redox(context, chat, endpoint_matches);
                     }
                 }
                 Event::UiImport(result) => {
@@ -1398,9 +1635,11 @@ impl ReDox {
                                     })
                                     .count();
                                 if chat.attachments.len() + new_count > MAX_ATTACHMENTS {
-                                    self.attachment_error = Some(format!(
-                                        "Attach at most {MAX_ATTACHMENTS} files per message."
-                                    ));
+                                    self.report_attachment_error(
+                                        context,
+                                        chat_id,
+                                        attachment_limit_message(),
+                                    );
                                 } else {
                                     for attachment in attachments {
                                         chat.attachments
@@ -1410,7 +1649,7 @@ impl ReDox {
                                 }
                             }
                         }
-                        Err(error) => self.attachment_error = Some(error),
+                        Err(error) => self.report_attachment_error(context, chat_id, error),
                     }
                 }
                 Event::Logout(result) => {
@@ -1467,7 +1706,7 @@ impl ReDox {
                         self.status = status;
                     }
                 }
-                Event::Workspace(result) => {
+                Event::Workspace(target, result) => {
                     self.picking_workspace = false;
 
                     match result {
@@ -1479,7 +1718,21 @@ impl ReDox {
                                     .is_some_and(|folder| !folder.is_dir())
                             });
                             self.session.workspace = Some(path.clone());
-                            if repairing {
+                            if let Some(target) = target {
+                                if let Some(chat) = self.session.chats.iter_mut().find(|chat| {
+                                    chat.id == target
+                                        && !chat.archived
+                                        && !chat.is_saffyos_locked()
+                                        && chat.workspace.is_none()
+                                        && self.running.as_ref().is_none_or(|run| run.id.chat != target)
+                                }) {
+                                    chat.set_workspace(Some(path));
+                                    chat.set_mode(redox::domain::Mode::Code);
+                                    self.focus_prompt = self.session.active_chat == Some(target);
+                                } else {
+                                    self.status = "Chat changed before the folder could be attached.".into();
+                                }
+                            } else if repairing {
                                 if let Some(chat) = self.session.active_mut() {
                                     chat.set_workspace(Some(path));
                                 }
@@ -1497,11 +1750,13 @@ impl ReDox {
     }
 }
 
+fn attachment_limit_message() -> String {
+    format!("Attach at most {MAX_ATTACHMENTS} files per message.")
+}
+
 fn read_attachments(paths: Vec<PathBuf>) -> Result<Vec<Attachment>, String> {
     if paths.len() > MAX_ATTACHMENTS {
-        return Err(format!(
-            "Attach at most {MAX_ATTACHMENTS} files per message."
-        ));
+        return Err(attachment_limit_message());
     }
     paths.into_iter().map(Attachment::read).collect()
 }
@@ -1513,15 +1768,12 @@ fn has_extension(path: &std::path::Path, extension: &str) -> bool {
 
 #[derive(Debug, PartialEq, Eq)]
 enum DropKind {
-    StudioSkin,
     UiConfig,
     Attachment,
 }
 
 fn drop_kind(paths: &[PathBuf]) -> DropKind {
-    if paths.len() == 1 && has_extension(&paths[0], "redoxskin") {
-        DropKind::StudioSkin
-    } else if paths.iter().all(|path| has_extension(path, "json")) {
+    if paths.iter().all(|path| has_extension(path, "json")) {
         DropKind::UiConfig
     } else {
         DropKind::Attachment
@@ -1545,13 +1797,10 @@ impl eframe::App for ReDox {
         });
         if !dropped.is_empty() {
             let kind = drop_kind(&dropped);
-            if kind == DropKind::StudioSkin {
-                self.load_studio_skin(dropped[0].clone());
-            } else if !self.skin_picture_drop(&dropped, context) {
+            if !self.skin_picture_drop(&dropped, context) {
                 match kind {
                     DropKind::UiConfig => self.import_ui(Some(dropped), context),
                     DropKind::Attachment => self.attach_dropped_files(dropped, context),
-                    DropKind::StudioSkin => unreachable!(),
                 }
             }
         }
@@ -1560,6 +1809,7 @@ impl eframe::App for ReDox {
         }
 
         if context.input(|input| input.key_pressed(egui::Key::Escape))
+            && !self.terminal_is_open(context)
             && !egui::Popup::is_any_open(context)
             && context.memory(|memory| memory.top_modal_layer().is_none())
         {
@@ -1602,8 +1852,9 @@ impl eframe::App for ReDox {
             self.settings_open = true;
         }
 
-        self.draw_ui(context);
+        self.draw_window(context, _frame);
         self.dispatch_queued_prompt(context);
+        self.dispatch_saffyos_continuation(context);
         self.presence.sync(&self.ui_preferences.discord_presence);
         #[cfg(debug_assertions)]
         self.verify_ui_restart(context);
@@ -1649,7 +1900,7 @@ mod drop_tests {
     fn dropped_files_use_their_file_type() {
         let classify =
             |names: &[&str]| drop_kind(&names.iter().map(PathBuf::from).collect::<Vec<_>>());
-        assert_eq!(classify(&["theme.REDOXSKIN"]), DropKind::StudioSkin);
+        assert_eq!(classify(&["theme.REDOXSKIN"]), DropKind::Attachment);
         assert_eq!(classify(&["theme.json"]), DropKind::UiConfig);
         assert_eq!(classify(&["photo.PNG"]), DropKind::Attachment);
         assert_eq!(classify(&["notes.md"]), DropKind::Attachment);
@@ -1657,6 +1908,6 @@ mod drop_tests {
     }
 }
 
-#[cfg(all(test, feature = "design-export"))]
+#[cfg(test)]
 #[path = "../tests/perf/desktop.rs"]
 mod performance_tests;

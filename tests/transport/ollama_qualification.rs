@@ -1,9 +1,9 @@
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
 
-use super::super::RUST_PROFILE_MODEL;
 use super::*;
 
+const SAFFYOS_MODEL: &str = "Aisnley-Ox-1.5-bbb:exp-invariants";
 const SUBMISSION: &str = r#"
 pub enum Expr {
     Identifier(String),
@@ -39,6 +39,7 @@ async fn retries_reasoning_and_cargo_failures_then_reuses_qualification() {
         let mut delivered = 0;
         let mut reads = 0;
         let mut rust = 0;
+        let mut repairs = 0;
         while delivered < 2 {
             let (mut socket, _) = listener.accept().unwrap();
             socket
@@ -71,7 +72,7 @@ async fn retries_reasoning_and_cargo_failures_then_reuses_qualification() {
                 }
                 "/api/ps" => {
                     assert_eq!(attempt, 3);
-                    json!({"models":[{"name":RUST_PROFILE_MODEL,"digest":"stable","context_length":64000}]})
+                    json!({"models":[{"name":SAFFYOS_MODEL,"digest":"stable","context_length":64000}]})
                 }
                 "/api/show" => json!({"capabilities":["tools","thinking"]}),
                 "/api/chat" => {
@@ -86,15 +87,34 @@ async fn retries_reasoning_and_cargo_failures_then_reuses_qualification() {
                     if users.iter().any(|user| *user == "held user prompt") {
                         assert_eq!(attempt, 3);
                         assert!(users.iter().any(|user| user.contains("Build a parser")));
+                        assert_eq!(users.len(), REASONING_TRIALS + 2);
+                        assert_eq!(messages[messages.len() - 2]["content"], SUBMISSION);
                         assert_eq!(body["keep_alive"], KEEP_WARM_SECONDS);
                         delivered += 1;
                         reply("ordinary answer")
                     } else if attempt == 1 {
                         assert_eq!(users.len(), 1);
-                        reply("{\"acknowledged\":true}")
+                        let mut response = reply("{\"acknowledged\":true}");
+                        response["load_duration"] = json!(200_000_000);
+                        response
                     } else if users.last().unwrap().contains("Build a parser") {
                         assert_eq!(users.len(), REASONING_TRIALS + 1);
+                        let expected = reasoning_trials(marker).pop().unwrap().expected;
+                        assert_eq!(
+                            messages[messages.len() - 2]["content"],
+                            format!("```json\n{expected}\n```")
+                        );
                         rust += 1;
+                        reply(&format!("{SUBMISSION}\nstruct Parser {{ input: &str }}"))
+                    } else if users
+                        .last()
+                        .unwrap()
+                        .starts_with("Cargo rejected the parser.")
+                    {
+                        assert_eq!(users.len(), REASONING_TRIALS + 2);
+                        assert!(users.last().unwrap().contains("E0106"));
+                        assert!(users.last().unwrap().contains("missing lifetime specifier"));
+                        repairs += 1;
                         reply(if attempt == 2 {
                             "pub fn broken("
                         } else {
@@ -102,21 +122,35 @@ async fn retries_reasoning_and_cargo_failures_then_reuses_qualification() {
                         })
                     } else {
                         let trials = reasoning_trials(marker);
-                        let trial = &trials[users.len() - 1];
-                        if trial.fixture && messages.last().unwrap()["role"] != "tool" {
-                            reads += 1;
-                            json!({"done":true,"message":{"tool_calls":[{"function":{"name":"read_file","arguments":{"path":"fixture.json"}}}]}})
+                        if users
+                            .last()
+                            .unwrap()
+                            .starts_with("Your response reached its output token limit.")
+                        {
+                            assert_eq!(attempt, 3);
+                            assert_eq!(users.len(), REASONING_TRIALS + 1);
+                            return_reply(&trials[REASONING_TRIALS - 1].expected)
+                        } else if attempt == 3 && users.len() == REASONING_TRIALS {
+                            let mut response = reply("```json\n[1,");
+                            response["done_reason"] = json!("length");
+                            response
                         } else {
-                            if trial.fixture {
-                                assert_eq!(
-                                    serde_json::from_str::<Value>(
-                                        messages.last().unwrap()["content"].as_str().unwrap()
-                                    )
-                                    .unwrap(),
-                                    trial.expected
-                                );
+                            let trial = &trials[users.len() - 1];
+                            if trial.fixture && messages.last().unwrap()["role"] != "tool" {
+                                reads += 1;
+                                json!({"done":true,"message":{"tool_calls":[{"function":{"name":"read_file","arguments":{"path":"fixture.json"}}}]}})
+                            } else {
+                                if trial.fixture {
+                                    assert_eq!(
+                                        serde_json::from_str::<Value>(
+                                            messages.last().unwrap()["content"].as_str().unwrap()
+                                        )
+                                        .unwrap(),
+                                        trial.expected
+                                    );
+                                }
+                                reply(&format!("```json\n{}\n```", trial.expected))
                             }
-                            reply(&format!("```json\n{}\n```", trial.expected))
                         }
                     }
                 }
@@ -132,13 +166,15 @@ async fn retries_reasoning_and_cargo_failures_then_reuses_qualification() {
         }
         assert_eq!(reads, 4);
         assert_eq!(rust, 2);
+        assert_eq!(repairs, 2);
     });
     let mut statuses = Vec::new();
+    let mut completed_timings = Vec::new();
     for _ in 0..2 {
         let request = Request::for_task(
             super::super::Settings {
                 endpoint: endpoint.clone(),
-                preferred_model: RUST_PROFILE_MODEL.into(),
+                preferred_model: SAFFYOS_MODEL.into(),
                 context_tokens: 64_000,
                 output_tokens: 4096,
                 ..Default::default()
@@ -147,7 +183,7 @@ async fn retries_reasoning_and_cargo_failures_then_reuses_qualification() {
             None,
             Mode::Chat,
         );
-        let (sender, mut events) = mpsc::channel(64);
+        let (sender, mut events) = mpsc::channel(128);
         let (_stop, cancel) = watch::channel(false);
         tokio::time::timeout(
             Duration::from_secs(25),
@@ -160,6 +196,9 @@ async fn retries_reasoning_and_cargo_failures_then_reuses_qualification() {
         while let Some(event) = events.recv().await {
             match event {
                 ProviderEvent::Status(status) => statuses.push(status),
+                ProviderEvent::Qualification(timing) if timing.completed => {
+                    completed_timings.push(timing);
+                }
                 ProviderEvent::Content(text) => output.push_str(&text),
                 _ => {}
             }
@@ -167,6 +206,12 @@ async fn retries_reasoning_and_cargo_failures_then_reuses_qualification() {
         assert_eq!(output, "ordinary answer");
     }
     server.join().unwrap();
+    assert_eq!(
+        statuses.first(),
+        Some(&format!(
+            "{SAFFYOS_MODEL} qualification · Attempt 1 · loading fresh weights"
+        ))
+    );
     assert!(
         statuses
             .iter()
@@ -184,8 +229,20 @@ async fn retries_reasoning_and_cargo_failures_then_reuses_qualification() {
             .count(),
         1
     );
+    let [timing] = completed_timings.as_slice() else {
+        panic!("Expected exactly one completed qualification");
+    };
+    assert_eq!(timing.first_load_seconds, Some(0.2));
+    assert_eq!(timing.attempt, 3);
+    assert_eq!(timing.trial_seconds.len(), REASONING_TRIALS);
+    assert!(timing.elapsed_seconds >= timing.rust_seconds.unwrap());
 }
 
 fn reply(text: &str) -> Value {
-    json!({"done":true,"message":{"content":text},"eval_count":10})
+    json!({"done":true,"message":{"content":text},"eval_count":10,"prompt_eval_count":10,
+           "load_duration":1_000_000})
+}
+
+fn return_reply(expected: &Value) -> Value {
+    reply(&format!("```json\n{expected}\n```"))
 }

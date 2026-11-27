@@ -1,7 +1,6 @@
 use eframe::egui::{
     self, Align, Color32, FontId, Frame, Layout, Margin, Rect, RichText, Sense, Stroke, pos2, vec2,
 };
-use redox::domain::Mode;
 
 use super::{
     icons::{self, Icon},
@@ -39,7 +38,7 @@ impl ReDox {
                         match icon {
                             Icon::NewChat => {
                                 self.dispatch_ui_action(
-                                    redox_studio::actions::UiAction::NewChat,
+                                    crate::app::ui_actions::UiAction::NewChat,
                                     context,
                                 );
                             }
@@ -227,7 +226,7 @@ impl ReDox {
                     }
                     if ui.button("Open project folder…").clicked() {
                         self.dispatch_ui_action(
-                            redox_studio::actions::UiAction::OpenProject,
+                            crate::app::ui_actions::UiAction::OpenProject,
                             context,
                         );
                         ui.close();
@@ -261,27 +260,7 @@ impl ReDox {
                 );
             }
             self.model_effort_picker(ui, "claude_model_effort");
-            if let Some(chat) = self.session.active_mut()
-                && chat.workspace.is_some()
-            {
-                let mut mode = chat.mode;
-                ui.add_enabled_ui(self.running.is_none(), |ui| {
-                    egui::ComboBox::from_id_salt("claude_access")
-                        .width(108.0)
-                        .selected_text(RichText::new(mode.label()).size(12.0))
-                        .show_ui(ui, |ui| {
-                            for choice in [Mode::Chat, Mode::Code, Mode::FullAccess] {
-                                ui.selectable_value(&mut mode, choice, choice.label());
-                            }
-                        })
-                        .response
-                        .on_hover_text("Access for the next message");
-                });
-                chat.set_mode(mode);
-            } else {
-                ui.label(RichText::new("Chat").size(12.0))
-                    .on_hover_text("No project folder");
-            }
+            self.prompt_access(ui);
         });
         self.queued_messages(ui);
         if let Some(error) = &self.attachment_error {
@@ -298,7 +277,7 @@ impl ReDox {
             ui.label(RichText::new(&self.status).small().color(theme::muted()));
         }
         if send {
-            self.dispatch_ui_action(redox_studio::actions::UiAction::Send, context);
+            self.dispatch_ui_action(crate::app::ui_actions::UiAction::Send, context);
         }
     }
 
@@ -350,7 +329,7 @@ impl ReDox {
     fn claude_send_control(&mut self, ui: &mut egui::Ui) -> bool {
         if self.active_chat_running() {
             if icons::button(ui, Icon::Close, "Stop response").clicked() {
-                self.dispatch_ui_action(redox_studio::actions::UiAction::Stop, ui.ctx());
+                self.dispatch_ui_action(crate::app::ui_actions::UiAction::Stop, ui.ctx());
             }
         }
         let ready = !self.is_editing_message()
@@ -364,12 +343,6 @@ impl ReDox {
                 ui.allocate_exact_size(vec2(26.0, 24.0), Sense::click_and_drag());
             let color = if ready { theme::text() } else { theme::muted() };
             icons::paint(ui.painter(), rect.shrink(3.0), Icon::Return, color);
-            #[cfg(feature = "design-export")]
-            super::design_export::record(
-                ui.ctx(),
-                response.rect,
-                redox_studio::actions::UiAction::Send,
-            );
             ready && self.queue_send_control(response)
         })
         .inner

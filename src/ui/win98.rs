@@ -25,6 +25,16 @@ pub(super) fn high_contrast() -> bool {
     theme::palette().high_contrast
 }
 
+macro_rules! classic_icon_svg {
+    ($name:literal) => {
+        if high_contrast() {
+            egui::include_image!(concat!("assets/icons/", $name, "-gray.svg"))
+        } else {
+            icon_svg!($name)
+        }
+    };
+}
+
 pub(super) fn control_face() -> Color32 {
     if high_contrast() {
         theme::rail()
@@ -99,19 +109,25 @@ impl Shortcut {
         match self {
             Self::Chat => app.focus_win98_prompt(context),
             Self::Terminal => {
-                super::win98_terminal::set_open(context, true);
+                super::win98_terminal::set_open(app, context, true);
                 app.focus_prompt = true;
             }
             _ => {
                 if let Some(action) = self.action() {
                     app.dispatch_ui_action(action, context);
+                    if app.ui_preferences.win98_terminal_open
+                        && (matches!(self, Self::Chats) && app.sidebar_visible
+                            || matches!(self, Self::Agents) && app.ui_preferences.agents_open)
+                    {
+                        super::win98_terminal::reveal_sidebars(context);
+                    }
                 }
             }
         }
     }
 
-    fn action(self) -> Option<redox_studio::actions::UiAction> {
-        use redox_studio::actions::UiAction;
+    fn action(self) -> Option<crate::app::ui_actions::UiAction> {
+        use crate::app::ui_actions::UiAction;
         Some(match self {
             Self::Chat | Self::Terminal => return None,
             Self::Chats => UiAction::Sidebar,
@@ -139,10 +155,10 @@ impl Shortcut {
                 );
                 return;
             }
-            Self::Chats => icon_svg!("classic-chats"),
-            Self::Project => icon_svg!("classic-project"),
-            Self::Agents => icon_svg!("classic-agents"),
-            Self::Settings => icon_svg!("classic-settings"),
+            Self::Chats => classic_icon_svg!("classic-chats"),
+            Self::Project => classic_icon_svg!("classic-project"),
+            Self::Agents => classic_icon_svg!("classic-agents"),
+            Self::Settings => classic_icon_svg!("classic-settings"),
         };
         paint_svg(ui.painter(), bounds, source, WHITE);
     }
@@ -231,6 +247,10 @@ pub(super) fn bevel(painter: &egui::Painter, rect: Rect, sunken: bool) {
     painter.vline(edge.left(), edge.y_range(), Stroke::new(1.0, light));
     painter.hline(edge.x_range(), edge.bottom(), Stroke::new(1.0, dark));
     painter.vline(edge.right(), edge.y_range(), Stroke::new(1.0, dark));
+}
+
+pub(super) fn icons_toggle_label(visible: bool) -> &'static str {
+    if visible { "Hide icons" } else { "Show icons" }
 }
 
 pub(super) fn button(
@@ -338,7 +358,7 @@ pub(super) fn caption_control(
 }
 
 fn mark(painter: &egui::Painter, rect: Rect) {
-    paint_svg(painter, rect, icon_svg!("classic-mark"), WHITE);
+    paint_svg(painter, rect, classic_icon_svg!("classic-mark"), WHITE);
 }
 
 fn gradient(painter: &egui::Painter, rect: Rect, colors: [Color32; 4]) {
@@ -401,6 +421,29 @@ fn welcome_monitor(painter: &egui::Painter, bounds: Rect) {
 }
 
 impl ReDox {
+    pub(super) fn set_win98_theme(&mut self, context: &egui::Context, dark: bool) -> String {
+        let id = if dark { DARK_ID } else { ID };
+        let Some(pack) = self.ui_catalog.packs.iter().find(|pack| pack.id == id) else {
+            return "The requested Windows 98 theme is unavailable.".into();
+        };
+        if self.active_ui.id != id {
+            self.ui_preferences
+                .sidebars
+                .insert(self.active_ui.id.clone(), self.sidebar_visible);
+            self.active_ui = pack.clone();
+            self.ui_preferences.ui = id.into();
+            self.ui_background = None;
+            let mut palette = pack.config.colors().unwrap_or_default();
+            if let Some(colors) = self.ui_preferences.text_colors.get(id) {
+                palette = colors.apply(palette);
+            }
+            theme::set_palette(palette);
+            apply_style(context);
+            context.request_repaint();
+        }
+        format!("Theme: {}", pack.config.name)
+    }
+
     pub(super) fn win98_title_bar(&mut self, context: &egui::Context) {
         egui::TopBottomPanel::top("win98_window_chrome")
             .exact_height(HEADER_HEIGHT)
@@ -425,6 +468,16 @@ impl ReDox {
                             Layout::left_to_right(Align::Center),
                             |ui| {
                                 self.main_menus(ui, context);
+                                let terminal = context.viewport_id() == egui::ViewportId::ROOT
+                                    && self.ui_preferences.win98_terminal_open;
+                                if !terminal || super::win98_terminal::caption_hidden(self) {
+                                    let label = icons_toggle_label(
+                                        self.ui_preferences.win98_icons_visible(terminal),
+                                    );
+                                    if button(ui, label, vec2(72.0, 18.0)).clicked() {
+                                        self.ui_preferences.toggle_win98_icons(terminal);
+                                    }
+                                }
                                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                     self.title_ui_picker(ui);
                                 });
@@ -458,7 +511,7 @@ impl ReDox {
                                 .clicked()
                             {
                                 self.dispatch_ui_action(
-                                    redox_studio::actions::UiAction::NewChat,
+                                    crate::app::ui_actions::UiAction::NewChat,
                                     context,
                                 );
                                 ui.close();
@@ -488,24 +541,35 @@ impl ReDox {
                         .on_hover_text("Previous chat")
                         .clicked()
                     {
-                        self.dispatch_ui_action(redox_studio::actions::UiAction::Previous, context);
+                        self.dispatch_ui_action(
+                            crate::app::ui_actions::UiAction::Previous,
+                            context,
+                        );
                     }
                     if button(ui, "▶", vec2(25.0, 23.0))
                         .on_hover_text("Next chat")
                         .clicked()
                     {
-                        self.dispatch_ui_action(redox_studio::actions::UiAction::Next, context);
+                        self.dispatch_ui_action(crate::app::ui_actions::UiAction::Next, context);
                     }
                     ui.separator();
                     for shortcut in WINDOWS {
                         let active = matches!(shortcut, Shortcut::Terminal)
-                            == super::win98_terminal::is_open(context);
+                            == self.ui_preferences.win98_terminal_open;
                         let task = button(ui, shortcut.label(), vec2(88.0, 23.0));
                         if active {
                             bevel(ui.painter(), task.rect, true);
                         }
                         if task.clicked() {
                             shortcut.activate(self, context);
+                        }
+                    }
+                    if super::win98_terminal::is_fullscreen(context)
+                        && super::win98_terminal::caption_hidden(self)
+                    {
+                        let label = icons_toggle_label(self.ui_preferences.win98_icons_visible(true));
+                        if button(ui, label, vec2(72.0, 23.0)).clicked() {
+                            self.ui_preferences.toggle_win98_icons(true);
                         }
                     }
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -521,9 +585,7 @@ impl ReDox {
     }
 
     pub(super) fn win98_desktop(&mut self, context: &egui::Context) {
-        if context.content_rect().width() < 750.0
-            && (self.sidebar_visible || self.ui_preferences.agents_open)
-        {
+        if context.content_rect().width() < 750.0 {
             return;
         }
         egui::SidePanel::left("win98_shortcuts")
@@ -542,10 +604,6 @@ impl ReDox {
                     response.widget_info(|| {
                         egui::WidgetInfo::labeled(egui::WidgetType::Button, true, shortcut.label())
                     });
-                    #[cfg(feature = "design-export")]
-                    if let Some(action) = shortcut.action() {
-                        super::design_export::record(context, rect, action);
-                    }
                     if response.hovered() || response.has_focus() {
                         ui.painter()
                             .rect_filled(rect.shrink(2.0), 0, selected_fill());
@@ -567,7 +625,10 @@ impl ReDox {
 
     pub(super) fn win98_conversation(&mut self, context: &egui::Context) {
         let root = context.viewport_id() == egui::ViewportId::ROOT;
-        let gutter = if root {
+        let docked_terminal = root
+            && self.ui_preferences.win98_terminal_open
+            && self.ui_preferences.win98_terminal_docked;
+        let gutter = if root && !docked_terminal {
             Margin {
                 top: 10,
                 bottom: (context.content_rect().height() * 0.065).clamp(10.0, 52.0) as i8,
@@ -588,6 +649,10 @@ impl ReDox {
                     );
                 }
                 let rect = ui.available_rect_before_wrap();
+                if docked_terminal {
+                    super::win98_terminal::show(ui, rect, self);
+                    return;
+                }
                 ui.painter().rect_filled(
                     rect.translate(vec2(3.0, 3.0)),
                     0,
@@ -597,16 +662,12 @@ impl ReDox {
                 bevel(ui.painter(), rect, false);
                 bevel(ui.painter(), rect.shrink(1.0), false);
                 let inner = rect.shrink(4.0);
-                let terminal_open = root && super::win98_terminal::is_open(context);
                 let mut window = ui.new_child(
                     egui::UiBuilder::new()
                         .id_salt(("win98_conversation", context.viewport_id()))
                         .max_rect(inner),
                 );
                 window.set_clip_rect(ui.clip_rect().intersect(inner));
-                if terminal_open {
-                    window.disable();
-                }
                 let (header_id, header_height) = if root {
                     ("win98_chat_header", 23.0)
                 } else {
@@ -634,11 +695,6 @@ impl ReDox {
                             self.win98_caption(ui, context, false);
                         }
                     });
-                if terminal_open {
-                    let overlay = window.available_rect_before_wrap().shrink(6.0);
-                    super::win98_terminal::show(ui, overlay, self);
-                    return;
-                }
                 self.composer(context, Some(&mut window));
                 egui::CentralPanel::default()
                     .frame(Frame::NONE.fill(pane_fill()))
@@ -686,12 +742,6 @@ impl ReDox {
         if root {
             let drag = ui.interact(caption, ui.id().with("win98_drag"), Sense::click_and_drag());
             window_frame::title_drag(context, &drag);
-            #[cfg(feature = "design-export")]
-            super::design_export::record(
-                context,
-                drag.rect,
-                redox_studio::actions::UiAction::WindowDrag,
-            );
             let maximized = context.input(|input| input.viewport().maximized.unwrap_or(false));
             for (index, (tooltip, command)) in [
                 ("Minimize", egui::ViewportCommand::Minimized(true)),
@@ -718,10 +768,6 @@ impl ReDox {
                         Sense::click(),
                     )
                     .on_hover_text(tooltip);
-                #[cfg(feature = "design-export")]
-                if let Some(action) = redox_studio::actions::UiAction::from_label(tooltip) {
-                    super::design_export::record(context, response.rect, action);
-                }
                 caption_control(
                     ui.painter(),
                     bounds,
@@ -862,7 +908,7 @@ impl ReDox {
 
     fn focus_win98_prompt(&mut self, context: &egui::Context) {
         if context.viewport_id() == egui::ViewportId::ROOT {
-            super::win98_terminal::set_open(context, false);
+            super::win98_terminal::set_open(self, context, false);
         }
         if let Some(id) = self.prompt_input_id {
             context.memory_mut(|memory| memory.request_focus(id));

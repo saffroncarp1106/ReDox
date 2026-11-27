@@ -108,14 +108,14 @@ impl ScrollArea {
         let mut track_bounds = bounds;
         track_bounds.min[axis] += arrow;
         track_bounds.max[axis] -= arrow;
-        self.area = self
-            .area
-            .scroll_bar_rect(track_bounds)
-            .scroll_bar_visibility(if axis == 1 {
-                egui::scroll_area::ScrollBarVisibility::AlwaysVisible
-            } else {
-                egui::scroll_area::ScrollBarVisibility::VisibleWhenNeeded
-            });
+        self.area = if axis == 1 {
+            self.area
+                .scroll_bar_rect(track_bounds)
+                .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
+        } else {
+            self.area
+                .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
+        };
         let mut output = ui
             .scope(|ui| {
                 ui.spacing_mut().scroll = egui::style::ScrollStyle {
@@ -133,6 +133,11 @@ impl ScrollArea {
             return output;
         }
         let mut bar = output.inner_rect;
+        if axis == 0 {
+            // egui returns the viewport before shrinking it to the content height.
+            bar.set_bottom(output.inner_rect.top() + output.content_size.y);
+            ui.allocate_space(Vec2::new(bar.width(), WIDTH + self.classic_inner_margin));
+        }
         bar.min[1 - axis] = bar.max[1 - axis] + self.classic_inner_margin;
         bar.max[1 - axis] = bar.min[1 - axis] + WIDTH;
         let (first, track, last, thumb) = geometry(
@@ -144,6 +149,17 @@ impl ScrollArea {
         );
         paint_track(ui, track);
         let mut delta = 0.0;
+        if axis == 0 {
+            let response = ui.interact(track, output.id.with("classic_track"), Sense::click());
+            if response.clicked()
+                && let Some(pointer) = response.interact_pointer_pos()
+            {
+                delta += (pointer.x - thumb.center().x).signum() * output.inner_rect.width();
+            }
+            let response = ui.interact(thumb, output.id.with("classic_thumb"), Sense::drag());
+            let travel = (track.width() - thumb.width()).max(1.0);
+            delta += response.drag_delta().x * max_offset / travel;
+        }
         for (end, rect, direction) in [(0, first, -1.0), (1, last, 1.0)] {
             let response = ui.interact(
                 rect,

@@ -1,12 +1,12 @@
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 use tokio::sync::{Mutex, mpsc, watch};
 
 use super::{
-    InputMessage, Mode, ProviderEvent, Request, api_url, client, is_rust_profile, send, state,
-    stream_chat, stream_chat_inner,
+    InputMessage, Mode, ProviderEvent, QualificationTiming, Request, api_url, client,
+    is_rust_profile, send, state, stream_chat, stream_chat_inner,
 };
 
 #[path = "ollama_qualification/cases.rs"]
@@ -20,6 +20,7 @@ mod tests;
 const PARSER_PROMPT: &str = include_str!("ollama_qualification/parser_prompt.txt");
 const PARSER_HARNESS: &str = include_str!("ollama_qualification/parser_harness.rs");
 const KEEP_WARM_SECONDS: i64 = 900;
+const MAX_QUALIFICATION_ATTEMPTS: usize = 3;
 
 #[derive(PartialEq)]
 struct LoadKey {
@@ -43,7 +44,10 @@ pub async fn stream_qualified_chat(
     sender: mpsc::Sender<ProviderEvent>,
     mut cancel: watch::Receiver<bool>,
 ) -> Result<(), String> {
-    if !is_rust_profile(&request.model) {
+    if request.saffyos_locked
+        || !is_rust_profile(&request.model)
+        || super::is_ainsley_interactive(&request.model)
+    {
         return stream_chat(request, sender, cancel).await;
     }
     if *cancel.borrow() {
@@ -68,7 +72,7 @@ pub async fn stream_qualified_chat(
     request.messages = history;
     request.settings.keep_alive = Some(KEEP_WARM_SECONDS);
     let mut compacted = false;
-    let result = stream_chat_inner(request, sender, cancel, &mut compacted).await;
+    let result = stream_chat_inner(request, sender, cancel, &mut compacted, &mut None).await;
     if compacted {
         *qualified = None;
     }
@@ -125,7 +129,12 @@ async fn qualify_at_endpoint(
         return Ok(false);
     }
 
-    status(sender, "Waiting for server qualification").await?;
+    let model = if super::versioned_ainsley(&request.model).is_some() {
+        request.model.as_str()
+    } else {
+        super::RUST_PROFILE_MODEL
+    };
+    status(sender, model, "Checking with Ollama service").await?;
     let qualify = api
         .join("../_redox/qualify")
         .map_err(|error| error.to_string())?;
@@ -192,16 +201,29 @@ async fn prepare(
     };
     if !already_ready {
         *qualified = None;
-        let mut attempt = 0;
-        loop {
-            attempt += 1;
-            status(sender, format!("Attempt {attempt} · loading fresh weights")).await?;
+        let started = Instant::now();
+        let mut timing = QualificationTiming::default();
+        for attempt in 1..=MAX_QUALIFICATION_ATTEMPTS {
+            timing.attempt = attempt;
+            timing.trial_seconds.clear();
+            timing.rust_seconds = None;
+            status(
+                sender,
+                &request.model,
+                format!("Attempt {attempt} · loading fresh weights"),
+            )
+            .await?;
+            report_timing(sender, started, &mut timing).await?;
             unload(&client, request).await?;
-            if let Some(history) = qualify(request, sender, cancel.clone(), attempt).await?
+            if let Some(history) =
+                qualify(request, sender, cancel.clone(), started, &mut timing).await?
                 && let Some(runner) = resident(&client, &key).await?
             {
+                timing.completed = true;
+                report_timing(sender, started, &mut timing).await?;
                 status(
                     sender,
+                    &request.model,
                     "10/10 reasoning and 1/1 Rust passed · starting your prompt",
                 )
                 .await?;
@@ -214,7 +236,22 @@ async fn prepare(
             }
         }
     }
+    if qualified.is_none() {
+        return Err(format!(
+            "{} qualification failed after {MAX_QUALIFICATION_ATTEMPTS} attempts.",
+            request.model
+        ));
+    }
     Ok(qualified)
+}
+
+async fn report_timing(
+    sender: &mpsc::Sender<ProviderEvent>,
+    started: Instant,
+    timing: &mut QualificationTiming,
+) -> Result<(), String> {
+    timing.elapsed_seconds = started.elapsed().as_secs_f64();
+    send(sender, ProviderEvent::Qualification(timing.clone())).await
 }
 
 async fn resident(
@@ -259,14 +296,12 @@ async fn unload(client: &reqwest::Client, request: &Request) -> Result<(), Strin
 
 async fn status(
     sender: &mpsc::Sender<ProviderEvent>,
+    model: &str,
     message: impl AsRef<str>,
 ) -> Result<(), String> {
     send(
         sender,
-        ProviderEvent::Status(format!(
-            "Aisnley-Ox-1-bbb qualification · {}",
-            message.as_ref()
-        )),
+        ProviderEvent::Status(format!("{model} qualification · {}", message.as_ref())),
     )
     .await
 }
@@ -275,8 +310,10 @@ async fn qualify(
     original: &Request,
     sender: &mpsc::Sender<ProviderEvent>,
     cancel: watch::Receiver<bool>,
-    attempt: usize,
+    started: Instant,
+    timing: &mut QualificationTiming,
 ) -> Result<Option<Vec<InputMessage>>, String> {
+    let attempt = timing.attempt;
     let id = uuid::Uuid::new_v4();
     let checkpoint = state::checkpoint_path(id).ok_or("Application data folder unavailable.")?;
     let workspace = checkpoint.with_file_name("qualification");
@@ -295,8 +332,10 @@ async fn qualify(
         .enumerate()
     {
         let number = index + 1;
+        let trial_started = Instant::now();
         status(
             sender,
+            &original.model,
             format!("Attempt {attempt} · reasoning {number}/{REASONING_TRIALS}"),
         )
         .await?;
@@ -314,21 +353,41 @@ async fn qualify(
             cancel.clone(),
         )
         .await?;
-        if reply.as_ref().is_none_or(|(answer, read_file)| {
-            !strict_pass(answer, &trial.expected) || (trial.fixture && !read_file)
-        }) {
+        if attempt == 1 && number == 1 {
+            timing.first_load_seconds = reply.load_seconds;
+        }
+        let answer = reply.answer.and_then(|mut answer| {
+            if trial.fixture && !reply.read_file {
+                return None;
+            }
+            if strict_pass(&answer, &trial.expected) {
+                return Some(answer);
+            }
+            // A model can restart its JSON answer after reaching the output limit.
+            let offset = reply.last_truncation?;
+            let restarted = answer.get(offset..)?;
+            strict_pass(restarted, &trial.expected).then(|| answer.split_off(offset))
+        });
+        timing
+            .trial_seconds
+            .push(trial_started.elapsed().as_secs_f64());
+        report_timing(sender, started, timing).await?;
+        let Some(answer) = answer else {
             status(
                 sender,
+                &original.model,
                 format!("Reasoning trial {number} failed · retrying from trial 1"),
             )
             .await?;
             return Ok(None);
-        }
-        history.push(message("assistant", reply.unwrap().0));
+        };
+        history.push(message("assistant", answer));
     }
 
+    let rust_started = Instant::now();
     status(
         sender,
+        &original.model,
         format!("Attempt {attempt} · 10/10 reasoning passed · generating Rust parser"),
     )
     .await?;
@@ -336,17 +395,57 @@ async fn qualify(
     settings.output_tokens = original.settings.output_tokens;
     settings.instructions = "Return the complete source for solution.rs. Use the standard library and preserve the exact public interface. Return plain Rust or one Rust code fence.".into();
     history.push(message("user", PARSER_PROMPT.trim().into()));
-    if let Some((answer, _)) =
-        trial_reply(settings, &workspace, &checkpoint, &history, cancel).await?
-    {
-        status(sender, "Building the Rust parser with Cargo").await?;
-        if builds(&workspace, &answer).await? {
+    let parser_prompt_len = history.len();
+    let mut accepted = None;
+    for repair in [false, true] {
+        let reply = trial_reply(
+            settings.clone(),
+            &workspace,
+            &checkpoint,
+            &history,
+            cancel.clone(),
+        )
+        .await?;
+        let Some(answer) = reply.answer else {
+            break;
+        };
+        status(
+            sender,
+            &original.model,
+            if repair {
+                "Building the repaired Rust parser with Cargo"
+            } else {
+                "Building the Rust parser with Cargo"
+            },
+        )
+        .await?;
+        let Some(diagnostics) = build_diagnostics(&workspace, &answer, repair).await? else {
+            accepted = Some(answer);
+            break;
+        };
+        if !repair {
+            status(
+                sender,
+                &original.model,
+                "Repairing the Rust parser with Cargo feedback",
+            )
+            .await?;
             history.push(message("assistant", answer));
-            return Ok(Some(history));
+            history.push(message("user", format!(
+                "Cargo rejected the parser. Fix the diagnostics below and return the complete corrected solution.rs. Preserve the original public interface and behavior.\n\n{diagnostics}"
+            )));
         }
+    }
+    timing.rust_seconds = Some(rust_started.elapsed().as_secs_f64());
+    report_timing(sender, started, timing).await?;
+    if let Some(answer) = accepted {
+        history.truncate(parser_prompt_len);
+        history.push(message("assistant", answer));
+        return Ok(Some(history));
     }
     status(
         sender,
+        &original.model,
         "Rust build failed · retrying from reasoning trial 1",
     )
     .await?;
@@ -355,10 +454,18 @@ async fn qualify(
 
 fn message(role: &'static str, content: String) -> InputMessage {
     InputMessage {
+        id: None,
         role,
         content,
         images: Vec::new(),
     }
+}
+
+struct TrialReply {
+    answer: Option<String>,
+    last_truncation: Option<usize>,
+    read_file: bool,
+    load_seconds: Option<f64>,
 }
 
 async fn trial_reply(
@@ -367,7 +474,7 @@ async fn trial_reply(
     checkpoint: &Path,
     history: &[InputMessage],
     cancel: watch::Receiver<bool>,
-) -> Result<Option<(String, bool)>, String> {
+) -> Result<TrialReply, String> {
     let mut request = Request::for_task(
         settings,
         String::new(),
@@ -380,11 +487,13 @@ async fn trial_reply(
         Some(checkpoint.with_file_name(format!("trial-{}.md", history.len() / 2 + 1)));
     let (send, mut receive) = mpsc::channel(64);
     let mut compacted = false;
-    let (result, (answer, read_file)) = tokio::join!(
-        stream_chat_inner(request, send, cancel, &mut compacted),
+    let mut last_truncation = None;
+    let (result, (answer, read_file, load_seconds)) = tokio::join!(
+        stream_chat_inner(request, send, cancel, &mut compacted, &mut last_truncation),
         async {
             let mut answer = String::new();
             let mut read_file = false;
+            let mut load_seconds = None;
             while let Some(event) = receive.recv().await {
                 match event {
                     ProviderEvent::Content(text) => answer.push_str(&text),
@@ -393,48 +502,64 @@ async fn trial_reply(
                         answer.push_str(&text);
                     }
                     ProviderEvent::Status(text) => read_file |= text.ends_with(": read_file"),
+                    ProviderEvent::Context(usage) if !usage.estimated => {
+                        load_seconds = load_seconds.or(usage.load_seconds);
+                    }
                     _ => {}
                 }
             }
-            (answer, read_file)
+            (answer, read_file, load_seconds)
         }
     );
     if compacted {
         return Err("Aisnley-Ox-1-bbb ran out of context while qualifying. Increase the context window in Agents.".into());
     }
-    match result {
-        Ok(()) => Ok(Some((answer, read_file))),
+    let answer = match result {
+        Ok(()) => Some(answer),
         Err(error)
             if error.contains("Ollama returned no answer")
                 || error.contains("reached the output limit") =>
         {
-            Ok(None)
+            None
         }
-        Err(error) => Err(error),
-    }
+        Err(error) => return Err(error),
+    };
+    Ok(TrialReply {
+        answer,
+        last_truncation,
+        read_file,
+        load_seconds,
+    })
 }
 
-async fn builds(workspace: &Path, reply: &str) -> Result<bool, String> {
+async fn build_diagnostics(
+    workspace: &Path,
+    reply: &str,
+    repair: bool,
+) -> Result<Option<String>, String> {
+    let invalid_source = || {
+        Some("Return the complete Rust module as plain source or a single Rust code fence.".into())
+    };
     let reply = reply.trim();
     let source = if let Some(fence) = reply.strip_prefix("```") {
         let Some((language, rest)) = fence.split_once('\n') else {
-            return Ok(false);
+            return Ok(invalid_source());
         };
         if !matches!(
             language.trim().to_ascii_lowercase().as_str(),
             "" | "rust" | "rs"
         ) {
-            return Ok(false);
+            return Ok(invalid_source());
         }
         let Some(source) = rest.strip_suffix("\n```") else {
-            return Ok(false);
+            return Ok(invalid_source());
         };
         source
     } else {
         reply
     };
     if source.trim().is_empty() || source.contains("```") {
-        return Ok(false);
+        return Ok(invalid_source());
     }
     let source_dir = workspace.join("src");
     tokio::fs::create_dir_all(&source_dir)
@@ -468,8 +593,18 @@ async fn builds(workspace: &Path, reply: &str) -> Result<bool, String> {
         .await
         .map_err(|_| "Aisnley-Ox-1-bbb qualification Cargo build timed out.")?
         .map_err(|error| format!("Cannot start Cargo for qualification: {error}"))?;
-    tokio::fs::write(workspace.join("cargo-output.txt"), &output.stderr)
+    let log_name = if repair {
+        "cargo-repair-output.txt"
+    } else {
+        "cargo-output.txt"
+    };
+    tokio::fs::write(workspace.join(log_name), &output.stderr)
         .await
         .map_err(|error| error.to_string())?;
-    Ok(output.status.success())
+    Ok((!output.status.success()).then(|| {
+        String::from_utf8_lossy(&output.stderr)
+            .chars()
+            .take(6000)
+            .collect()
+    }))
 }

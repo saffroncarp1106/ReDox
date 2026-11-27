@@ -429,12 +429,6 @@ impl ReDox {
                         Sense::click_and_drag(),
                     );
                     super::window_frame::title_drag(context, &drag);
-                    #[cfg(feature = "design-export")]
-                    super::design_export::record(
-                        context,
-                        drag.rect,
-                        redox_studio::actions::UiAction::WindowDrag,
-                    );
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         if icons::button(ui, Icon::Close, "Close window").clicked() {
                             context.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -484,11 +478,11 @@ impl ReDox {
                         .inner
                         .clicked()
                     {
-                        self.dispatch_ui_action(redox_studio::actions::UiAction::NewChat, context);
+                        self.dispatch_ui_action(crate::app::ui_actions::UiAction::NewChat, context);
                     }
                     if button(ui, "Open project", 126.0, false).clicked() {
                         self.dispatch_ui_action(
-                            redox_studio::actions::UiAction::OpenProject,
+                            crate::app::ui_actions::UiAction::OpenProject,
                             context,
                         );
                     }

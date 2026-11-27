@@ -1,25 +1,24 @@
 use crate::app::ReDox;
 use eframe::egui;
-use redox_studio::actions::UiAction;
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum UiAction {
+    AddFiles,
+    Chats,
+    History,
+    NewChat,
+    Next,
+    OllamaAgent,
+    OpenProject,
+    Previous,
+    Rename,
+    Send,
+    Settings,
+    Sidebar,
+    Stop,
+}
 
 impl ReDox {
     pub(crate) fn dispatch_ui_action(&mut self, action: UiAction, ctx: &egui::Context) {
-        if let Some(scene) = action.scene() {
-            self.settings_page = match scene {
-                redox_studio::scenes::SceneId::Models => crate::app::ui::SettingsPage::Models,
-                redox_studio::scenes::SceneId::Workspace => crate::app::ui::SettingsPage::Workspace,
-                redox_studio::scenes::SceneId::Appearance => {
-                    crate::app::ui::SettingsPage::Appearance
-                }
-                redox_studio::scenes::SceneId::Cursors => crate::app::ui::SettingsPage::Cursors,
-                redox_studio::scenes::SceneId::Advanced => crate::app::ui::SettingsPage::Advanced,
-                redox_studio::scenes::SceneId::Updates => crate::app::ui::SettingsPage::Updates,
-                redox_studio::scenes::SceneId::About => crate::app::ui::SettingsPage::About,
-                _ => crate::app::ui::SettingsPage::Account,
-            };
-            self.settings_open = action != UiAction::SettingsClose;
-            return;
-        }
         match action {
             UiAction::History => {
                 self.sidebar_visible = true;
@@ -29,7 +28,7 @@ impl ReDox {
                 self.sidebar_visible = true;
                 self.search_open = false;
             }
-            UiAction::Project | UiAction::OpenProject => self.pick_workspace(ctx),
+            UiAction::OpenProject => self.pick_workspace(ctx),
             UiAction::NewChat => {
                 if self.can_new_chat() {
                     self.new_chat();
@@ -41,35 +40,14 @@ impl ReDox {
             UiAction::Next => self.navigate(1),
             UiAction::Rename => self.rename_open = true,
             UiAction::OllamaAgent => {
-                self.ui_preferences.agents_open = !self.ui_preferences.agents_open
+                self.ui_preferences.agents_open = !self.ui_preferences.agents_open;
             }
-            UiAction::Settings
-            | UiAction::SettingsAccount
-            | UiAction::SettingsModels
-            | UiAction::SettingsWorkspace
-            | UiAction::SettingsAppearance
-            | UiAction::SettingsCursors
-            | UiAction::SettingsAdvanced
-            | UiAction::SettingsUpdates
-            | UiAction::SettingsAbout
-            | UiAction::SettingsClose => {}
+            UiAction::Settings => {
+                self.settings_page = crate::app::ui::SettingsPage::Account;
+                self.settings_open = true;
+            }
             UiAction::Sidebar => self.sidebar_visible = !self.sidebar_visible,
             UiAction::AddFiles => self.pick_files(ctx),
-            UiAction::WindowClose => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
-            UiAction::WindowMinimize => {
-                ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
-            }
-            UiAction::WindowMaximize => {
-                let maximized = ctx.input(|input| input.viewport().maximized.unwrap_or(false));
-                ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!maximized));
-            }
-            UiAction::Menus
-            | UiAction::Model
-            | UiAction::Effort
-            | UiAction::ModelEffort
-            | UiAction::Composer
-            | UiAction::Conversation
-            | UiAction::WindowDrag => {}
         }
     }
 }

@@ -4,7 +4,7 @@ use super::{
 };
 use crate::app::ReDox;
 use eframe::egui::{self, Align2, FontId, RichText, Sense, emath::GuiRounding, pos2, vec2};
-use redox::domain::DEFAULT_MODEL;
+use redox::domain::{DEFAULT_MODEL, Mode};
 
 pub(super) fn focus_new_prompt(response: &egui::Response, pending: &mut bool, allowed: bool) {
     if *pending && allowed {
@@ -14,10 +14,56 @@ pub(super) fn focus_new_prompt(response: &egui::Response, pending: &mut bool, al
 }
 
 impl ReDox {
-    pub(super) fn attachment_menu(&mut self, ui: &mut egui::Ui) -> egui::Response {
-        use redox_studio::actions::UiAction;
+    pub(super) fn prompt_access(&mut self, ui: &mut egui::Ui) {
+        let Some(chat) = self.session.active() else {
+            return;
+        };
+        if chat.is_saffyos_locked() {
+            ui.label("Locked").on_hover_text("Access is limited to the SaffyOS folder");
+            return;
+        }
+        let id = chat.id;
+        let has_workspace = chat.workspace.is_some();
+        let mut mode = chat.mode;
+        let mut choose_folder = false;
+        let enabled = !chat.archived && !self.active_chat_running();
+        let label = if has_workspace { mode.label() } else { "Access" };
+        ui.add_enabled_ui(enabled, |ui| {
+            ui.menu_button(label, |ui| {
+                if has_workspace {
+                    for option in [Mode::Chat, Mode::Code, Mode::FullAccess] {
+                        if ui.selectable_value(&mut mode, option, option.label()).clicked() {
+                            ui.close();
+                        }
+                    }
+                } else {
+                    ui.label("Chat only · no project folder");
+                    choose_folder = ui
+                        .add_enabled(!self.picking_workspace, egui::Button::new("Choose project folder…"))
+                        .clicked();
+                    if choose_folder {
+                        ui.close();
+                    }
+                }
+            })
+            .response
+            .on_hover_text("Workspace access for this chat");
+        });
+        if choose_folder {
+            self.pick_workspace_for(ui.ctx(), Some(id));
+        } else if has_workspace && let Some(chat) = self.session.active_mut() {
+            chat.set_mode(mode);
+        }
+    }
 
-        let (rect, response) = ui.allocate_exact_size(vec2(28.0, 28.0), Sense::click());
+    pub(super) fn attachment_menu(&mut self, ui: &mut egui::Ui) -> egui::Response {
+        self.attachment_menu_sized(ui, 28.0)
+    }
+
+    pub(super) fn attachment_menu_sized(&mut self, ui: &mut egui::Ui, size: f32) -> egui::Response {
+        use crate::app::ui_actions::UiAction;
+
+        let (rect, response) = ui.allocate_exact_size(vec2(size, size), Sense::click());
         response.widget_info(|| {
             egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), "Add attachments")
         });
@@ -108,12 +154,6 @@ impl ReDox {
                     ui.style_mut().visuals.menu_corner_radius =
                         egui::CornerRadius::same(if classic { 0 } else { 18 });
                     let button = effort_button(ui, &name, &label);
-                    #[cfg(feature = "design-export")]
-                    super::design_export::record(
-                        ui.ctx(),
-                        button.rect,
-                        redox_studio::actions::UiAction::ModelEffort,
-                    );
                     if self.capture_path.is_some()
                         && std::env::args().any(|arg| arg == "--effort-preview")
                     {
@@ -385,12 +425,6 @@ fn model_choices(
             )
             .frame(false)
             .truncate(),
-        );
-        #[cfg(feature = "design-export")]
-        super::design_export::record(
-            ui.ctx(),
-            response.rect,
-            redox_studio::actions::UiAction::Model,
         );
         if response.clicked() {
             expanded = !expanded;
