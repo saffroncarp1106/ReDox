@@ -8,13 +8,14 @@ use crate::app::ReDox;
 use redox::codex;
 use redox::domain::{DEFAULT_MODEL, Mode};
 
-const SETTINGS_PAGES: [(SettingsPage, &str); 10] = [
+const SETTINGS_PAGES: [(SettingsPage, &str); 11] = [
     (SettingsPage::Account, "Account"),
     (SettingsPage::Models, "Models & reasoning"),
     (SettingsPage::Workspace, "Workspace & access"),
     (SettingsPage::SaffyOs, "SaffyOS"),
     (SettingsPage::Resources, "Resource limiter"),
     (SettingsPage::Appearance, "Appearance"),
+    (SettingsPage::Ui, "Interface"),
     (SettingsPage::Cursors, "Cursor animation"),
     (SettingsPage::Advanced, "Advanced"),
     (SettingsPage::Updates, "Updates"),
@@ -28,6 +29,7 @@ const SETTINGS_ICONS: [Icon; SETTINGS_PAGES.len()] = [
     Icon::Chat,
     Icon::Bolt,
     Icon::Grid,
+    Icon::Panel,
     Icon::Reticle,
     Icon::Settings,
     Icon::Bolt,
@@ -231,6 +233,7 @@ impl ReDox {
                         "SaffyOS",
                         "Resources",
                         "Appearance",
+                        "Interface",
                         "Cursors",
                         "Advanced",
                         "Updates",
@@ -326,6 +329,7 @@ impl ReDox {
                         SettingsPage::Workspace => self.workspace_settings(ui, context),
                         SettingsPage::SaffyOs => self.saffyos_settings(ui),
                         SettingsPage::Appearance => self.appearance_settings(ui, context),
+                        SettingsPage::Ui => self.ui_settings(ui, context),
                         SettingsPage::Cursors => {
                             heading(
                                 ui,
@@ -640,24 +644,129 @@ impl ReDox {
         ui.label(RichText::new("Use + → Add files in the composer. Up to 8 files per message; 128 KiB per text file and 20 MiB per image.").color(muted()));
     }
 
+    fn ui_settings(&mut self, ui: &mut egui::Ui, context: &egui::Context) {
+        heading(
+            ui,
+            "Interface",
+            "Choose the interface ReDox runs. Windows 98 and Windows 98 Dark are the primary interfaces; Wii is optional and Codex is kept under Legacy.",
+        );
+        let busy = self.running.is_some()
+            || self.importing_ui
+            || self.capture_path.is_some()
+            || self
+                .login_task
+                .as_ref()
+                .is_some_and(|task| !task.is_finished());
+        settings_group(ui, "Current interface", |ui| {
+            ui.label(RichText::new(self.active_ui.config.name.clone()).font(theme::semibold(16.0)));
+            ui.label(
+                RichText::new(
+                    "Switching interfaces restarts the app. Chats, drafts, and workspace stay saved.",
+                )
+                .small()
+                .color(muted()),
+            );
+        });
+        settings_group(ui, "Primary interfaces", |ui| {
+            for id in [win98::ID, win98::DARK_ID, super::wii::ID] {
+                self.interface_row(ui, id, context, busy);
+            }
+        });
+        let custom: Vec<String> = self
+            .ui_catalog
+            .packs
+            .iter()
+            .filter(|pack| {
+                ![win98::ID, win98::DARK_ID, super::wii::ID, "codex"].contains(&pack.id.as_str())
+            })
+            .map(|pack| pack.id.clone())
+            .collect();
+        if !custom.is_empty() {
+            settings_group(ui, "Your skins", |ui| {
+                for id in custom {
+                    self.interface_row(ui, &id, context, busy);
+                }
+            });
+        }
+        ui.add_space(8.0);
+        ui.collapsing("Legacy", |ui| {
+            ui.label(
+                RichText::new("Deprecated interfaces kept for the old look.")
+                    .small()
+                    .color(muted()),
+            );
+            self.interface_row(ui, "codex", context, busy);
+        });
+        if let Some(error) = self.ui_error.clone() {
+            ui.colored_label(Color32::LIGHT_RED, error);
+        }
+        for error in self.ui_catalog.errors.clone() {
+            ui.colored_label(Color32::LIGHT_RED, error);
+        }
+        ui.add_space(12.0);
+        settings_group(ui, "Skins", |ui| {
+            ui.horizontal_wrapped(|ui| {
+                self.skin_settings(ui, context);
+                if ui.button("Import UI config…").clicked() {
+                    self.import_ui(None, context);
+                }
+                if ui.button("Reload current interface").clicked() {
+                    let current = self.active_ui.id.clone();
+                    self.switch_ui(&current, context);
+                }
+                if ui.button("Rescan UI folder").clicked() {
+                    self.scan_ui();
+                }
+                if ui.button("Copy UI packs folder").clicked() {
+                    context.copy_text(self.ui_folder.display().to_string());
+                }
+            });
+            ui.label(
+                RichText::new("Drop a JSON config or a folder containing ui.json into the UI folder to add a skin. Config edits apply after switching to it and restarting.")
+                    .small()
+                    .color(muted()),
+            );
+        });
+    }
+
+    fn interface_row(&mut self, ui: &mut egui::Ui, id: &str, context: &egui::Context, busy: bool) {
+        let Some(pack) = self
+            .ui_catalog
+            .packs
+            .iter()
+            .find(|pack| pack.id == id)
+            .cloned()
+        else {
+            return;
+        };
+        let active = self.active_ui.id == pack.id;
+        ui.horizontal(|ui| {
+            let label = RichText::new(&pack.config.name)
+                .font(theme::semibold(14.0))
+                .color(if active { theme::blue() } else { theme::text() });
+            if ui
+                .add_enabled(!active && !busy, egui::Button::new(label))
+                .clicked()
+            {
+                self.switch_ui(&pack.id, context);
+            }
+            if active {
+                ui.label(RichText::new("Active").small().color(muted()));
+            }
+        });
+        ui.label(
+            RichText::new(format!("Layout · {}", pack.config.layout))
+                .small()
+                .color(muted()),
+        );
+    }
+
     fn appearance_settings(&mut self, ui: &mut egui::Ui, context: &egui::Context) {
         heading(
             ui,
             "Appearance",
             "Adjust the interface without changing your chats.",
         );
-        settings_group(ui, "Interface", |ui| {
-            ui.horizontal_wrapped(|ui| {
-                self.ui_picker(ui, "settings_ui_picker");
-                self.skin_settings(ui, context);
-            });
-            if let Some(error) = &self.ui_error {
-                ui.colored_label(Color32::LIGHT_RED, error);
-            }
-            for error in &self.ui_catalog.errors {
-                ui.colored_label(Color32::LIGHT_RED, error);
-            }
-        });
         if self.active_ui.config.layout == super::wii::ID {
             settings_group(ui, "Wii", |ui| {
                 theme::checkbox(ui, &mut self.ui_preferences.wii.sounds, "Interface sounds");
@@ -767,13 +876,6 @@ impl ReDox {
                 self.ui_preferences.zoom = Preferences::default().zoom;
                 self.sidebar_visible = true;
                 context.set_zoom_factor(1.0);
-            }
-        });
-        ui.add_space(25.0);
-        settings_group(ui, "Custom interfaces", |ui| {
-            ui.label(RichText::new("Drop JSON configs or folders containing ui.json into src/ui/layouts/. Available packs appear in the UI menu automatically. Config edits apply after selecting the UI and restarting.").color(muted()));
-            if ui.button("Copy UI packs folder").clicked() {
-                context.copy_text(self.ui_folder.clone().display().to_string());
             }
         });
     }

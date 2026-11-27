@@ -16,7 +16,7 @@ impl ReDox {
             if let Some(chat) = self.session.active_mut() {
                 chat.draft = "UI_RESTART_DRAFT_CHECK".into();
             }
-            self.switch_ui("gemini", context);
+            self.switch_ui("win98", context);
         } else {
             let preserved = self
                 .session
@@ -125,10 +125,10 @@ impl ReDox {
                     "appearance" => super::SettingsPage::Appearance,
                     "cursors" => super::SettingsPage::Cursors,
                     "advanced" => super::SettingsPage::Advanced,
-                    "about" | "new-ui" => super::SettingsPage::About,
+                    "ui" => super::SettingsPage::Ui,
+                    "about" => super::SettingsPage::About,
                     _ => super::SettingsPage::Account,
                 };
-                self.about.show_notice = page == "new-ui";
             }
             if std::env::args().any(|arg| arg == "--skin-preview") {
                 self.ui_preferences.floating_windows = false;

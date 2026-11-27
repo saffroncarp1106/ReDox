@@ -41,7 +41,6 @@ impl ReDox {
                     super::window_frame::title_drag(context, &drag);
 
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        self.title_ui_picker(ui);
                         if icons::button(ui, Icon::Close, "Close window").clicked() {
                             context.send_viewport_cmd(egui::ViewportCommand::Close);
                         }
@@ -59,24 +58,14 @@ impl ReDox {
     }
 
     pub(super) fn main_menus(&mut self, ui: &mut egui::Ui, context: &egui::Context) {
-        ui.allocate_ui_with_layout(
-            vec2(
-                184.0,
-                if !super::theme::is_classic(ui) {
-                    30.0
-                } else {
-                    20.0
-                },
-            ),
-            Layout::left_to_right(Align::Center),
-            |ui| {
-                egui::MenuBar::new().ui(ui, |ui| {
-                    ui.spacing_mut().item_spacing.x = if !super::theme::is_classic(ui) {
-                        10.0
-                    } else {
-                        2.0
-                    };
-                    ui.menu_button(RichText::new("File").color(theme::menu_text()), |ui| {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = if !super::theme::is_classic(ui) {
+                10.0
+            } else {
+                2.0
+            };
+            ui.scope(|ui| {
+                ui.menu_button(RichText::new("File").color(theme::menu_text()), |ui| {
                         if ui
                             .add_enabled(
                                 self.can_new_chat(),
@@ -151,16 +140,7 @@ impl ReDox {
                             "https://github.com/saffroncarp1106/ReDoxCodex",
                         );
                     });
-                });
-            },
-        );
-    }
-
-    pub(super) fn title_ui_picker(&mut self, ui: &mut egui::Ui) {
-        ui.add_space(8.0);
-        ui.scope(|ui| {
-            ui.visuals_mut().override_text_color = Some(theme::menu_text());
-            self.ui_picker(ui, "title_ui_picker");
+            });
         });
     }
 

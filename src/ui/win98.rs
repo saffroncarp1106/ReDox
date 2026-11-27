@@ -1,6 +1,6 @@
 use eframe::egui::{
-    self, Align, Color32, Frame, Layout, Margin, Pos2, Rect, RichText, Sense, Stroke, Ui, Vec2,
-    pos2, vec2,
+    self, Align, Align2, Color32, FontId, Frame, Layout, Margin, Pos2, Rect, RichText, Sense,
+    Stroke, Ui, Vec2, pos2, vec2,
 };
 
 use super::{
@@ -16,10 +16,6 @@ pub(super) const NAVY: Color32 = Color32::from_rgb(0, 0, 128);
 const SILVER: Color32 = Color32::from_gray(192);
 const WHITE: Color32 = Color32::WHITE;
 const BLACK: Color32 = Color32::BLACK;
-
-pub(super) fn is_builtin(id: &str) -> bool {
-    matches!(id, ID | DARK_ID)
-}
 
 pub(super) fn high_contrast() -> bool {
     theme::palette().high_contrast
@@ -324,13 +320,7 @@ pub(super) fn caption_background(painter: &egui::Painter, rect: Rect) {
     }
 }
 
-pub(super) fn caption_control(
-    painter: &egui::Painter,
-    rect: Rect,
-    index: usize,
-    maximized: bool,
-    pressed: bool,
-) {
+fn caption_face(painter: &egui::Painter, rect: Rect, pressed: bool) {
     painter.rect_filled(rect, 0, control_face());
     bevel(painter, rect, pressed);
     if !pressed {
@@ -346,6 +336,16 @@ pub(super) fn caption_control(
             Stroke::new(1.0, Color32::GRAY),
         );
     }
+}
+
+pub(super) fn caption_control(
+    painter: &egui::Painter,
+    rect: Rect,
+    index: usize,
+    maximized: bool,
+    pressed: bool,
+) {
+    caption_face(painter, rect, pressed);
     let origin = rect.min + Vec2::splat(if pressed { 3.0 } else { 2.0 });
     let bounds = Rect::from_min_size(origin, vec2(12.0, 10.0));
     let source = match index {
@@ -478,9 +478,6 @@ impl ReDox {
                                         self.ui_preferences.toggle_win98_icons(terminal);
                                     }
                                 }
-                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                    self.title_ui_picker(ui);
-                                });
                             },
                         );
                     });
@@ -567,7 +564,8 @@ impl ReDox {
                     if super::win98_terminal::is_fullscreen(context)
                         && super::win98_terminal::caption_hidden(self)
                     {
-                        let label = icons_toggle_label(self.ui_preferences.win98_icons_visible(true));
+                        let label =
+                            icons_toggle_label(self.ui_preferences.win98_icons_visible(true));
                         if button(ui, label, vec2(72.0, 23.0)).clicked() {
                             self.ui_preferences.toggle_win98_icons(true);
                         }
@@ -714,9 +712,9 @@ impl ReDox {
             });
     }
 
-    fn win98_caption(&self, ui: &mut Ui, context: &egui::Context, root: bool) {
+    fn win98_caption(&mut self, ui: &mut Ui, context: &egui::Context, root: bool) {
         let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 20.0), Sense::hover());
-        let control_width = if root { 56.0 } else { 0.0 };
+        let control_width = if root { 98.0 } else { 0.0 };
         let caption = Rect::from_min_max(rect.min, rect.right_bottom() - vec2(control_width, 0.0));
         caption_background(ui.painter(), rect);
         mark(
@@ -743,6 +741,36 @@ impl ReDox {
             let drag = ui.interact(caption, ui.id().with("win98_drag"), Sense::click_and_drag());
             window_frame::title_drag(context, &drag);
             let maximized = context.input(|input| input.viewport().maximized.unwrap_or(false));
+
+            let dark = self.active_ui.id == DARK_ID;
+            let theme_bounds = Rect::from_min_size(
+                pos2(caption.right() + 2.0, rect.top() + 3.0),
+                vec2(40.0, 14.0),
+            );
+            let theme = ui
+                .interact(
+                    theme_bounds,
+                    ui.id().with("win98_theme_switch"),
+                    Sense::click(),
+                )
+                .on_hover_text(if dark {
+                    "Switch Windows 98 to its light theme"
+                } else {
+                    "Switch Windows 98 to its dark theme"
+                });
+            caption_face(ui.painter(), theme_bounds, theme.is_pointer_button_down_on());
+            ui.painter().text(
+                theme_bounds.center(),
+                Align2::CENTER_CENTER,
+                if dark { "Light" } else { "Dark" },
+                FontId::proportional(9.0),
+                control_ink(),
+            );
+            if theme.clicked() {
+                let status = self.set_win98_theme(context, !dark);
+                self.status = status;
+            }
+
             for (index, (tooltip, command)) in [
                 ("Minimize", egui::ViewportCommand::Minimized(true)),
                 (
@@ -755,10 +783,11 @@ impl ReDox {
             .enumerate()
             {
                 let left = caption.right()
+                    + 44.0
                     + if index == 2 {
                         38.0
                     } else {
-                        2.0 + 17.0 * index as f32
+                        17.0 * index as f32
                     };
                 let bounds = Rect::from_min_size(pos2(left, rect.top() + 3.0), vec2(16.0, 14.0));
                 let response = ui

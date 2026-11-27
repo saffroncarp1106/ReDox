@@ -65,7 +65,7 @@ fn every_builtin_theme_can_edit_cancel_send_and_switch_an_inline_prompt() {
     let cli = root.join("unavailable-cli");
     std::fs::write(&cli, "Local fixture.").unwrap();
 
-    for theme in ["codex", "gemini", "claude", "win98", "wii"] {
+    for theme in ["codex", "win98", "wii"] {
         let ctx = egui::Context::default();
         ctx.enable_accesskit();
         let mut app = ReDox::test_preview(&ctx, theme);

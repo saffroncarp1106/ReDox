@@ -7,13 +7,11 @@ mod about;
 mod activity;
 mod agents;
 mod capture;
-mod claude;
 pub(super) mod clipboard;
 mod controls;
 mod conversation;
 pub(super) mod desktop_overlay;
 mod dialogs;
-mod gemini;
 mod icons;
 mod markdown;
 pub(super) mod media;
@@ -41,7 +39,6 @@ mod win98_terminal;
 mod window_frame;
 
 pub(super) const PREFERENCES_KEY: &str = "redox.ui.v1";
-pub(super) use about::About;
 
 const DEFAULT_SAFFYOS_FOLDER: &str = r"C:\Users\llkin\Documents\ReDoxWorkingDirectory\SaffyOSMem";
 
@@ -72,7 +69,6 @@ pub(super) struct Preferences {
     saffyos_model: String,
     pub agent_task: String,
     pub floating_windows: bool,
-    pub win98_unlocked: bool,
     win98_chat_icons_visible: bool,
     win98_terminal_icons_visible: Option<bool>,
     pub win98_terminal_open: bool,
@@ -90,7 +86,7 @@ impl Default for Preferences {
             codex_mode: false,
             project_glow: project_window::Glow::default(),
             text_colors: std::collections::BTreeMap::new(),
-            ui: "codex".into(),
+            ui: "win98".into(),
             sidebars: std::collections::BTreeMap::new(),
             zoom: 1.0,
             sidebar_visible: true,
@@ -100,7 +96,6 @@ impl Default for Preferences {
             saffyos_model: String::new(),
             agent_task: String::new(),
             floating_windows: true,
-            win98_unlocked: false,
             win98_chat_icons_visible: true,
             win98_terminal_icons_visible: None,
             win98_terminal_open: false,
@@ -132,19 +127,14 @@ impl Preferences {
     }
 
     pub fn normalize(&mut self) {
-        self.win98_unlocked |= win98::is_builtin(&self.ui)
-            || [win98::ID, win98::DARK_ID]
-                .iter()
-                .any(|id| self.sidebars.contains_key(*id));
+        if matches!(self.ui.as_str(), "claude" | "gemini") {
+            self.ui = win98::ID.into();
+        }
         self.zoom = if self.zoom.is_finite() {
             self.zoom.clamp(0.8, 1.5)
         } else {
             1.0
         };
-    }
-
-    pub fn shows_ui(&self, id: &str) -> bool {
-        !win98::is_builtin(id) || self.win98_unlocked
     }
 }
 
@@ -157,6 +147,7 @@ pub(super) enum SettingsPage {
     SaffyOs,
     Resources,
     Appearance,
+    Ui,
     Cursors,
     Advanced,
     Updates,

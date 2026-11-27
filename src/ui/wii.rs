@@ -441,7 +441,6 @@ impl ReDox {
                         if icons::button(ui, Icon::Minimize, "Minimize").clicked() {
                             context.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
                         }
-                        self.title_ui_picker(ui);
                     });
                 });
             });

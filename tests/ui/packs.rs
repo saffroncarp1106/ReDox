@@ -11,13 +11,13 @@ fn builtins_and_new_configs_are_discovered() {
     let root = directory();
     std::fs::write(
         root.join("custom.json"),
-        r#"{"name":"Ocean","layout":"gemini"}"#,
+        r#"{"name":"Ocean","layout":"win98"}"#,
     )
     .unwrap();
     let catalog = discover(&root);
     assert!(catalog.packs.iter().any(|pack| pack.id == "codex"));
-    assert!(catalog.packs.iter().any(|pack| pack.id == "gemini"));
-    assert!(catalog.packs.iter().any(|pack| pack.id == "claude"));
+    assert!(catalog.packs.iter().any(|pack| pack.id == "wii"));
+    assert!(catalog.packs.iter().any(|pack| pack.id == "win98-dark"));
     assert!(catalog.packs.iter().any(|pack| pack.id == "win98"));
     let dark = catalog
         .packs
@@ -83,15 +83,15 @@ fn visual_skin_save_round_trips_picture_and_opacity_without_source() {
         .unwrap();
     let root = directory();
     let config = Config {
-        name: "My Claude skin".into(),
-        layout: "claude".into(),
+        name: "My ocean skin".into(),
+        layout: "win98".into(),
         background_opacity: 0.35,
         ..Config::default()
     };
     let id = save(&config, Some(&source), &root).unwrap();
     let pack = root.join(id).join("ui.json");
     let saved = read(&pack).unwrap();
-    assert_eq!(saved.layout, "claude");
+    assert_eq!(saved.layout, "win98");
     assert_eq!(saved.background_opacity, 0.35);
     assert_eq!(saved.background_image.as_deref(), Some("background.png"));
     assert_ne!(asset_path(&pack, "background.png").unwrap(), source);

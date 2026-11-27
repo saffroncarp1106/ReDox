@@ -1,6 +1,6 @@
 # UI packs
 
-ReDox ships with Codex, Gemini, Claude, and Windows 98 layouts in `src/ui/layouts/`. Codex is the default. Each layout works with Codex and Ollama.
+ReDox ships with Windows 98, Windows 98 Dark, Wii, and the legacy Codex layout in `src/ui/layouts/`. Windows 98 is the default. Windows 98 and Windows 98 Dark share the `win98` layout engine and differ only in palette and contrast. Each layout works with Codex and Ollama.
 
 Use either a single `src/ui/layouts/ocean.json` or a folder:
 
@@ -10,16 +10,16 @@ src/ui/layouts/ocean/
   background.png
 ```
 
-The filename or folder name is the pack ID. The `name` field is displayed in the dropdown. Avoid duplicate IDs. The menu rescans every three seconds and also provides a manual refresh. Invalid packs are listed under Settings → Appearance and become available once their configs and assets are valid.
+The filename or folder name is the pack ID. The `name` field is displayed under Settings > Interface. Avoid duplicate IDs. The menu rescans every three seconds and also provides a manual refresh. Invalid packs are listed under Settings > Interface and become available once their configs and assets are valid.
 
-Import a file or pack folder by dragging it into the app. Alternatively use UI → Custom… Import config and select its JSON file. Import copies the config and referenced image into a new pack folder. Existing packs are preserved with a numbered suffix when names collide. Import does not automatically activate a pack; select its name afterward.
+Import a file or pack folder by dragging it into the app. Alternatively use Settings > Interface > Import UI config and select its JSON file. Import copies the config and referenced image into a new pack folder. Existing packs are preserved with a numbered suffix when names collide. Import does not automatically activate a pack; select its name afterward.
 
 ## Example ui.json
 
 ```json
 {
   "name": "Ocean",
-  "layout": "gemini",
+  "layout": "win98",
   "heading": "What are we building?",
   "placeholder": "Ask anything",
   "sidebar_default": false,
@@ -39,19 +39,19 @@ Import a file or pack folder by dragging it into the app. Alternatively use UI �
 }
 ```
 
-Optional: add `"background_image": "background.png"` and include that file beside the config. Subdirectories are supported. Images must be PNG, at most 8 MiB and 4096 × 4096 pixels. Asset references must stay within the pack folder. Background images are supported by both base layouts; the radial glow applies to Gemini's empty home screen.
+Optional: add `"background_image": "background.png"` and include that file beside the config. Subdirectories are supported. Images must be PNG, at most 8 MiB and 4096 × 4096 pixels. Asset references must stay within the pack folder. Background images are supported by every layout; the radial glow applies to the Windows 98 welcome screen.
 
-`layout` accepts `codex`, `gemini`, `claude`, or `win98`. Other fields are optional and inherit defaults. Colors use six-digit RGB hex strings. `glow_strength` ranges from 0 to 1. Labels are bounded, and configs must be at most 64 KiB. Unknown fields and invalid values produce an explicit error. Copy a built-in config to start from its complete palette.
+`layout` accepts `win98`, `wii`, or `codex`. Other fields are optional and inherit defaults. Colors use six-digit RGB hex strings. `glow_strength` ranges from 0 to 1. Labels are bounded, and configs must be at most 64 KiB. Unknown fields and invalid values produce an explicit error. Copy a built-in config to start from its complete palette.
 
 `codex.json` includes every adjustable palette key and a `palette_guide` object describing what each one controls. The guide is optional documentation metadata; edit the actual hex values under `palette`. `menu_text` controls the top menu labels independently of `text` (general text) and `muted` (secondary text and icons). Appearance color-picker choices override `menu_text` and `text` for that layout until **Restore text colors** is selected.
 
 `input_background` controls the message input box independently of `surface`. When omitted, it inherits `surface` for compatibility with existing packs. The Appearance page also provides a **Text box background** picker, saved separately for each layout; **Restore text colors** clears that override along with the text overrides.
 
-`sidebar_default` is used on first selection. Later choices are remembered separately for each pack. UI selection, chats, drafts, workspace, and model/effort choices survive restart. A missing selected pack falls back to Codex. The cursor animation reads actual rendered geometry from either layout. Customize it in Settings → Cursor animation; saved choices apply to both layouts. `src/ui/startup.json` supplies the initial defaults before personal overrides are saved.
+`sidebar_default` is used on first selection. Later choices are remembered separately for each pack. UI selection, chats, drafts, workspace, and model/effort choices survive restart. A missing selected pack falls back to Windows 98. The cursor animation reads actual rendered geometry from the active layout. Customize it in Settings → Cursor animation; saved choices apply to the active layout. `src/ui/startup.json` supplies the initial defaults before personal overrides are saved.
 
-Choose UI → Reload current UI after editing the active config. Selecting or reloading a pack saves the session and restarts the process. Switching is disabled while a response, sign-in, or import is running.
+Choose Settings > Interface > Reload current interface after editing the active config. Selecting or reloading a pack saves the session and restarts the process. Switching is disabled while a response, sign-in, or import is running.
 
-For portable builds, put packs under `ui/layouts/` beside the executable. `REDOX_UI_FOLDER` can point to another pack directory. Source checkouts discover `src/ui/layouts/` relative to the executable, so the launcher works from any current directory. Built-in Codex/Gemini configs remain embedded as fallbacks when external files are absent.
+For portable builds, put packs under `ui/layouts/` beside the executable. `REDOX_UI_FOLDER` can point to another pack directory. Source checkouts discover `src/ui/layouts/` relative to the executable, so the launcher works from any current directory. Built-in configs remain embedded as fallbacks when external files are absent.
 
 ## Verification
 
@@ -60,11 +60,11 @@ cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 cargo test --locked
 cargo build --locked
-.\target\debug\redox.exe --screenshot temp\screenshots\gemini-home.png --ui=gemini --home-preview --startup-preview=4.2
+.\target\debug\redox.exe --screenshot temp\screenshots\win98-home.png --ui=win98 --home-preview --startup-preview=4.2
 ```
 
 Create the screenshots folder first. Capture mode does not save changes to your session or UI preferences. `--home-preview` opens an empty chat in memory for layout verification.
 
-Debug builds also support an isolated restart check: set `REDOX_VERIFY_UI_RESTART` to a new empty directory and launch the executable. It uses a separate `state.ron`, switches from Codex to Gemini, checks draft persistence after the animation, writes `result.json`, and closes. This does not send model prompts. Clear the variable before ordinary launches.
+Debug builds also support an isolated restart check: set `REDOX_VERIFY_UI_RESTART` to a new empty directory and launch the executable. It uses a separate `state.ron`, switches from Codex to Windows 98, checks draft persistence after the animation, writes `result.json`, and closes. This does not send model prompts. Clear the variable before ordinary launches.
 
-For structural changes beyond the two base layouts, edit the native presentation modules described in [UI_CUSTOMIZATION.md](UI_CUSTOMIZATION.md) and rebuild.
+For structural changes beyond the built-in layouts, edit the native presentation modules described in [UI_CUSTOMIZATION.md](UI_CUSTOMIZATION.md) and rebuild.

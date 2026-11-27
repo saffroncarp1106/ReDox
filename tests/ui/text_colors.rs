@@ -37,7 +37,7 @@ fn color_choices_survive_restart_and_stay_separate_for_each_layout() {
         },
     );
     prefs.text_colors.insert(
-        "gemini".into(),
+        "win98".into(),
         TextColors {
             input_background: None,
             menu: Some([150, 150, 150]),
@@ -55,8 +55,8 @@ fn color_choices_survive_restart_and_stay_separate_for_each_layout() {
     let custom = restored.text_colors["codex"].apply(base);
     assert_eq!(custom.input_background, egui::Color32::from_rgb(30, 40, 50));
     assert_eq!(custom.surface, base.surface);
-    assert_eq!(restored.text_colors["gemini"].menu, Some([150, 150, 150]));
-    assert!(restored.text_colors["gemini"].general.is_none());
+    assert_eq!(restored.text_colors["win98"].menu, Some([150, 150, 150]));
+    assert!(restored.text_colors["win98"].general.is_none());
     let base = Palette::default();
     assert_eq!(TextColors::default().apply(base).text, base.text);
 }

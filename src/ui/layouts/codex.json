@@ -10,7 +10,7 @@
     "sidebar": "Project/chat sidebar and settings window background.",
     "rail": "Top bar behind File/Edit/View/Help and the left navigation rail.",
     "surface": "Composer, popup surfaces, and many hover backgrounds.",
-    "input_background": "Text box background in Codex and Gemini. Separate from other surfaces.",
+    "input_background": "Text box background in the composer. Separate from other surfaces.",
     "text": "GENERAL TEXT: main labels, conversation text, headings, and chat titles. Keep this bright for readability.",
     "menu_text": "TOP ROW TEXT: File, Edit, View, Help, and the UI selector. Independent of general text; gray matches the original app.",
     "muted": "Secondary text, descriptions, placeholder labels, and many idle icons. Independent of the top row text.",

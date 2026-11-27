@@ -196,14 +196,18 @@ pub fn read(path: &Path) -> Result<Config, String> {
     Ok(config)
 }
 
-fn builtin_configs() -> impl Iterator<Item = (&'static str, &'static str)> {
-    super::renderers::RENDERERS
-        .iter()
-        .map(|renderer| (renderer.id, renderer.config))
-        .chain([(
-            super::win98::DARK_ID,
-            include_str!("layouts/win98-dark.json"),
-        )])
+fn builtin_configs() -> std::vec::IntoIter<(&'static str, &'static str)> {
+    let mut configs: Vec<(&'static str, &'static str)> = Vec::new();
+    for renderer in super::renderers::RENDERERS {
+        configs.push((renderer.id, renderer.config));
+        if renderer.id == super::win98::ID {
+            configs.push((
+                super::win98::DARK_ID,
+                include_str!("layouts/win98-dark.json"),
+            ));
+        }
+    }
+    configs.into_iter()
 }
 
 pub fn discover(directory: &Path) -> Catalog {

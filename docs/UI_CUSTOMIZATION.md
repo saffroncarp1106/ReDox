@@ -7,9 +7,8 @@ The entire presentation layer is in `src/ui/`. Codex transport, authentication, 
 | `mod.rs` | UI entry point, settings sections, persisted appearance preferences |
 | `agents.rs` | Right-side Ollama connection, model selection, Codex task handoff, worker progress/results, and usage; transport stays in `src/delegation.rs` |
 | `packs.rs`, `layouts/` | Pack discovery, config validation, asset import, and built-in configs |
-| `picker.rs` | UI dropdown and drop target |
-| `gemini.rs` | Gemini-style home, rail, composer, and conversation layout |
-| `win98.rs` | Windows 98 desktop, Start taskbar, Welcome window, and classic widgets |
+| `picker.rs` | UI pack drop target |
+| `win98.rs` | Windows 98 desktop, Start taskbar, Welcome window, classic widgets, and light/dark switching |
 | `shell.rs` | Window chrome, navigation rail, projects, local chats, shared Codex history and pagination controls |
 | `conversation.rs` | Conversation layout, messages, Markdown/code blocks, composer, attachment chips |
 | `markdown.rs`, `media.rs` | Shared Markdown/math, inline images and animated GIFs, video playback links |
@@ -26,7 +25,7 @@ The entire presentation layer is in `src/ui/`. Codex transport, authentication, 
 
 ## Config-based UI packs
 
-Start with [UI_PACKS.md](UI_PACKS.md) to add configs, choose a base layout, edit colors/copy, or supply a PNG background without rebuilding. Import via the UI dropdown or drag a config/folder into the window. Packs in src/ui/layouts/ are discovered automatically. Theme color functions use the active palette, including Settings. Restart occurs after eframe has saved and closed the current window; the new process replays startup against the selected layout.
+Start with [UI_PACKS.md](UI_PACKS.md) to add configs, choose a base layout, edit colors/copy, or supply a PNG background without rebuilding. Import under **Settings -> Interface** or drag a config/folder into the window. Packs in src/ui/layouts/ are discovered automatically. Theme color functions use the active palette, including Settings. Restart occurs after eframe has saved and closed the current window; the new process replays startup against the selected layout.
 
 ## Make a Rust UI variant
 
@@ -62,6 +61,8 @@ cargo build --locked
 .\target\debug\redox.exe --screenshot temp\screenshots\advanced.png --settings=advanced
 .\target\debug\redox.exe --screenshot temp\screenshots\usage.png --usage
 .\target\debug\redox.exe --screenshot temp\screenshots\win98-home.png --ui=win98 --home-preview --sidebar
+.\target\debug\redox.exe --screenshot temp\screenshots\win98-dark-home.png --ui=win98-dark --home-preview --sidebar
+.\target\debug\redox.exe --screenshot temp\screenshots\interface.png --settings=ui
 ```
 
 To capture the startup choreography at a fixed time (in seconds), use:
@@ -72,7 +73,7 @@ To capture the startup choreography at a fixed time (in seconds), use:
 
 Without the preview flag, screenshot mode waits for the startup animation to finish. Do not use the preview flag for normal launches: it freezes the animation for visual verification.
 
-To verify media without a model call, create local image/GIF/video fixtures and a Markdown file linking them, then run `target/debug/redox.exe --screenshot temp/screenshots/media.png --media-preview=temp/media-fixtures/preview.md`. Paths in that Markdown resolve relative to the preview file. Add `--ui=gemini` to check the other layout. This preview is only applied in screenshot mode and does not save the temporary chat.
+To verify media without a model call, create local image/GIF/video fixtures and a Markdown file linking them, then run `target/debug/redox.exe --screenshot temp/screenshots/media.png --media-preview=temp/media-fixtures/preview.md`. Paths in that Markdown resolve relative to the preview file. Add `--ui=codex` to check the legacy layout. This preview is only applied in screenshot mode and does not save the temporary chat.
 
 Add `--agents` in screenshot mode to inspect the Ollama panel. It only discovers installed models; it does not run a generation. `cargo test --locked` exercises the native protocol with a local mock server, permission boundaries, approval, disconnections, provider persistence, and file/command actions. A bounded live test is opt-in: set `REDOX_OLLAMA_TEST_MODEL` to an installed model and run `cargo test --locked --lib live_local_model_smoke_test -- --ignored --nocapture`. It requests at most 16 output tokens and never downloads a model.
 

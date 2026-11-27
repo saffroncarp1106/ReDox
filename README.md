@@ -3,8 +3,12 @@ A front-end rewrite for rust because 1.2g of ram for a basic ui window is ridicu
 
 Redox: A reaction where both reduction and oxidation occurs. The process of Oxidation, is the lose of an electron, the project was aimed to rewrite Codex to no longer use Electron and instead Rust, ironically when Iron oxidizes, it Rusts. Technically a redox reaction needs a reduction, which we have by reducing ram consumption by 10x, so use the free memory for an Ollama model!
 
+## Status
+
+Windows 98 is the interface under active development and the one to expect updates for. The older interfaces are being deprecated: Claude and Gemini are gone, and Codex is kept under **Settings > Interface > Legacy** along with the other menu-only options. SaffyOS is in development — it is unfinished and not functional yet, so treat those pages and commands as previews.
+
 ## Run
-Version **0.2.4**. The Studio runtime library is bundled under `src/ui/studio_runtime` so ordinary builds work from this repository alone.
+Version **0.3.0**. The Studio runtime library is bundled under `src/ui/studio_runtime` so ordinary builds work from this repository alone.
 
 Windows resource budgets are available in **Settings > Resource limiter**. Enable the limiter, choose CPU and RAM percentages, enter your connection's upload capacity in Mbps, choose an upload percentage, and click **Apply resource budgets**. Applied settings persist across restarts. The limiter starts disabled with proposed budgets of 50% and a user-editable 20 Mbps upload reference.
 
@@ -191,7 +195,7 @@ Both layouts display PNG, JPEG, WebP, and animated GIF images from Markdown imag
 
 Video links (MP4, WebM, MOV, MKV, AVI, M4V) show **Play video**, opening the file or URL in the default player/browser. Video playback is external; the app does not embed a video decoder. Viewing media does not request another model generation.
 
-Both Codex and Gemini layouts now use the shared Markdown/math renderer in `src/ui/markdown.rs`. Equations, fractions, powers, subscripts, logarithms, headings, links, lists, and tables are formatted. Inline math accepts `$...$` or `\(...\)`; display math accepts `$$...$$` or `\[...\]`. Code blocks retain literal source and indentation, including HTML and LaTeX code examples. Right-click an equation to copy its LaTeX. Unsupported equations remain readable as source with an explanation on hover.
+Every interface uses the shared Markdown/math renderer in `src/ui/markdown.rs`. Equations, fractions, powers, subscripts, logarithms, headings, links, lists, and tables are formatted. Inline math accepts `$...$` or `\(...\)`; display math accepts `$$...$$` or `\[...\]`. Code blocks retain literal source and indentation, including HTML and LaTeX code examples. Right-click an equation to copy its LaTeX. Unsupported equations remain readable as source with an explanation on hover.
 
 Text and code use the bundled STIX Two Math font as a fallback for Unicode arrows (`→`, `⇒`), math symbols (`∈`, `ℝ`), and box drawing (`┌`, `─`, `│`).
 
@@ -263,4 +267,4 @@ ReDox Studio, live linking, preview export, and `.redoxskin` import are retired.
 
 ## Wii interface (v0.2.0)
 
-Choose **Wii** from the UI menu for the imported silver-and-white layout, cyan accents, channel shortcuts, glossy controls, player cursors and embedded feedback sounds. Settings > Appearance > Wii controls sounds and motion. The Wii presentation is integrated from the sibling ReDoxWiiUI source; existing application actions and model transports remain shared.
+Choose **Wii** under Settings > Interface for the imported silver-and-white layout, cyan accents, channel shortcuts, glossy controls, player cursors and embedded feedback sounds. Settings > Interface lists the available skins; the Wii options appear under Settings > Appearance. The Wii presentation is integrated from the sibling ReDoxWiiUI source; existing application actions and model transports remain shared.

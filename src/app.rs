@@ -145,7 +145,6 @@ pub struct ReDox {
     attachment_error: Option<String>,
     attachment_limit_notice: Option<(uuid::Uuid, f64)>,
     settings_open: bool,
-    about: ui::About,
     show_archived: bool,
     status: String,
     ollama_stage: Option<&'static str>,
@@ -207,7 +206,10 @@ impl ReDox {
             .unwrap_or(&ui_catalog.packs[0])
             .clone();
         let mut ui_error = if active_ui.id != selected {
-            Some(format!("UI '{selected}' is unavailable. Using Codex."))
+            Some(format!(
+                "UI '{selected}' is unavailable. Using {}.",
+                active_ui.config.name
+            ))
         } else {
             None
         };
@@ -349,7 +351,6 @@ impl ReDox {
             attachment_error: None,
             attachment_limit_notice: None,
             settings_open: false,
-            about: ui::About::default(),
             show_archived: false,
             status,
             ollama_stage: None,
@@ -402,7 +403,6 @@ impl ReDox {
     #[cfg(test)]
     pub fn prepare_test_scene(&mut self, conversation: bool) {
         self.ui_preferences.floating_windows = false;
-        self.ui_preferences.win98_unlocked = true;
         self.ui_preferences.agents_open = false;
         self.sidebar_visible = self.active_ui.config.layout != "win98";
         self.settings_open = false;
@@ -1724,13 +1724,17 @@ impl ReDox {
                                         && !chat.archived
                                         && !chat.is_saffyos_locked()
                                         && chat.workspace.is_none()
-                                        && self.running.as_ref().is_none_or(|run| run.id.chat != target)
+                                        && self
+                                            .running
+                                            .as_ref()
+                                            .is_none_or(|run| run.id.chat != target)
                                 }) {
                                     chat.set_workspace(Some(path));
                                     chat.set_mode(redox::domain::Mode::Code);
                                     self.focus_prompt = self.session.active_chat == Some(target);
                                 } else {
-                                    self.status = "Chat changed before the folder could be attached.".into();
+                                    self.status =
+                                        "Chat changed before the folder could be attached.".into();
                                 }
                             } else if repairing {
                                 if let Some(chat) = self.session.active_mut() {

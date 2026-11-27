@@ -85,7 +85,7 @@ fn wii_preferences_round_trip_without_affecting_other_layouts() {
         serde_json::from_str(&serde_json::to_string(&prefs).unwrap()).unwrap();
     assert!(!restored.wii.sounds);
     assert!(!restored.wii.motion);
-    assert_eq!(restored.ui, "codex");
+    assert_eq!(restored.ui, "win98");
 }
 
 #[test]

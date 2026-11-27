@@ -11,22 +11,10 @@ pub(in crate::app) struct Renderer {
 
 pub(in crate::app) const RENDERERS: &[Renderer] = &[
     Renderer {
-        id: "codex",
-        config: include_str!("layouts/codex.json"),
-        rail: ReDox::navigation_rail,
-        conversation: ReDox::conversation,
-    },
-    Renderer {
-        id: "gemini",
-        config: include_str!("layouts/gemini.json"),
-        rail: ReDox::gemini_rail,
-        conversation: ReDox::gemini_conversation,
-    },
-    Renderer {
-        id: "claude",
-        config: include_str!("layouts/claude.json"),
-        rail: ReDox::claude_rail,
-        conversation: ReDox::claude_conversation,
+        id: super::win98::ID,
+        config: include_str!("layouts/win98.json"),
+        rail: ReDox::win98_desktop,
+        conversation: ReDox::win98_conversation,
     },
     Renderer {
         id: super::wii::ID,
@@ -35,10 +23,10 @@ pub(in crate::app) const RENDERERS: &[Renderer] = &[
         conversation: ReDox::wii_conversation,
     },
     Renderer {
-        id: super::win98::ID,
-        config: include_str!("layouts/win98.json"),
-        rail: ReDox::win98_desktop,
-        conversation: ReDox::win98_conversation,
+        id: "codex",
+        config: include_str!("layouts/codex.json"),
+        rail: ReDox::navigation_rail,
+        conversation: ReDox::conversation,
     },
 ];
 
