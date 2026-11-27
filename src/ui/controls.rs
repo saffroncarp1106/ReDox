@@ -125,6 +125,12 @@ impl ReDox {
     }
 
     pub(in crate::app) fn model_effort_picker(&mut self, ui: &mut egui::Ui, id: &str) {
+        if self.is_deepseek() {
+            let name = self.session.deepseek.model().to_owned();
+            ui.label(RichText::new(name).size(13.0))
+                .on_hover_text("DeepSeek model is set in Settings > Models.");
+            return;
+        }
         let classic = theme::is_classic(ui);
         let local = self.is_ollama();
         let model = self.selected_model_info().cloned();
@@ -237,6 +243,10 @@ impl ReDox {
     }
 
     pub(in crate::app) fn effort_picker(&mut self, ui: &mut egui::Ui, id: &str) {
+        if self.is_deepseek() {
+            ui.label(RichText::new("DeepSeek").size(12.0));
+            return;
+        }
         if self.is_ollama() {
             ui.label(RichText::new("Ollama").size(12.0));
             return;
@@ -276,6 +286,12 @@ impl ReDox {
     }
 
     pub(in crate::app) fn chat_model_picker(&mut self, ui: &mut egui::Ui, id: &str) {
+        if self.is_deepseek() {
+            let name = self.session.deepseek.model().to_owned();
+            ui.label(RichText::new(name).size(12.0))
+                .on_hover_text("DeepSeek model is set in Settings > Models.");
+            return;
+        }
         let local = self.is_ollama();
         ui.add_enabled_ui(self.running.is_none(), |ui| {
             if local {

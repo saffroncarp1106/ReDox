@@ -320,6 +320,16 @@ pub(super) fn caption_background(painter: &egui::Painter, rect: Rect) {
     }
 }
 
+fn compact_tokens(value: u64) -> String {
+    if value >= 1_000_000 {
+        format!("{:.1}m", value as f64 / 1_000_000.0)
+    } else if value >= 1_000 {
+        format!("{:.1}k", value as f64 / 1_000.0)
+    } else {
+        value.to_string()
+    }
+}
+
 fn caption_face(painter: &egui::Painter, rect: Rect, pressed: bool) {
     painter.rect_filled(rect, 0, control_face());
     bevel(painter, rect, pressed);
@@ -571,12 +581,50 @@ impl ReDox {
                         }
                     }
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        let provider = if self.is_ollama() { "OLLAMA" } else { "CODEX" };
+                        let provider = if self.is_ollama() {
+                            "OLLAMA"
+                        } else if self.is_deepseek() {
+                            "DEEPSEEK"
+                        } else {
+                            "CODEX"
+                        };
                         let tray = ui.add_sized(
                             [96.0, 23.0],
                             egui::Label::new(RichText::new(format!("▣  {provider}")).small()),
                         );
                         bevel(ui.painter(), tray.rect, true);
+                        if let Some(chat) = self.session.active() {
+                            let stats = &chat.ollama_usage.last;
+                            let total = stats.prompt_tokens.saturating_add(stats.output_tokens);
+                            if total > 0 {
+                                let tokens = ui
+                                    .add_sized(
+                                        [132.0, 23.0],
+                                        egui::Label::new(
+                                            RichText::new(format!(
+                                                "{} in / {} out",
+                                                compact_tokens(stats.prompt_tokens),
+                                                compact_tokens(stats.output_tokens)
+                                            ))
+                                            .small(),
+                                        ),
+                                    )
+                                    .on_hover_text(format!(
+                                        "Last turn: {} input, {} output tokens{}. Totals: {} in / {} out.",
+                                        stats.prompt_tokens,
+                                        stats.output_tokens,
+                                        chat.ollama_context()
+                                            .map(|usage| format!(
+                                                " · {} of {} context used",
+                                                usage.tokens, usage.limit
+                                            ))
+                                            .unwrap_or_default(),
+                                        chat.ollama_usage.prompt_tokens,
+                                        chat.ollama_usage.output_tokens,
+                                    ));
+                                bevel(ui.painter(), tokens.rect, true);
+                            }
+                        }
                     });
                 });
             });

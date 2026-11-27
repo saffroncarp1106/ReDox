@@ -9,6 +9,7 @@ use redox::attachments::{Attachment, MAX_ATTACHMENTS};
 use redox::codex::{
     self, Approval, ChatRequest, ConnectionInfo, LoginChallenge, LoginEvent, ModelInfo,
 };
+use redox::deepseek;
 use redox::domain::{DEFAULT_MODEL, MessageStatus, Provider, RunId, Session};
 use redox::history::{self, ConversationPage, HistoryEntry, HistoryPage};
 use redox::ollama;
@@ -678,6 +679,10 @@ impl ReDox {
             let mut request = ollama::Request::from_chat(chat, self.session.ollama.clone());
             request.desktop = self.session.desktop.clone();
             run::Request::Ollama(request)
+        } else if chat.provider == Provider::DeepSeek {
+            let mut request = deepseek::Request::from_chat(chat, self.session.deepseek.clone());
+            request.desktop = self.session.desktop.clone();
+            run::Request::DeepSeek(request)
         } else {
             let mut request = ChatRequest::from_chat(chat, self.effective_model().to_owned());
             request.desktop = self.session.desktop.clone();
@@ -707,7 +712,11 @@ impl ReDox {
             self.run_sender.clone(),
             context.clone(),
         ));
-        self.ollama_stage = (chat.provider == Provider::Ollama).then_some("Preparing Ollama…");
+        self.ollama_stage = match chat.provider {
+            Provider::Ollama => Some("Preparing Ollama…"),
+            Provider::DeepSeek => Some("Contacting DeepSeek…"),
+            Provider::Codex => None,
+        };
         self.status = "Generating...".into();
     }
 
@@ -846,6 +855,12 @@ impl ReDox {
             };
         }
         self.desktop_overlay = None;
+    }
+
+    fn is_deepseek(&self) -> bool {
+        self.session
+            .active()
+            .is_some_and(|chat| chat.provider == Provider::DeepSeek)
     }
 
     fn is_ollama(&self) -> bool {

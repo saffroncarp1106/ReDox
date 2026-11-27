@@ -51,7 +51,7 @@ impl ReDox {
 
     pub(super) fn sidebar_usage(&mut self, ui: &mut egui::Ui, context: &egui::Context) {
         ui.add_space(8.0);
-        if self.is_ollama() {
+        if self.is_ollama() || self.is_deepseek() {
             if let Some(chat) = self.session.active() {
                 let stats = &chat.ollama_usage.last;
                 let label = chat

@@ -6,7 +6,7 @@ use super::theme::{muted, surface};
 use super::{Preferences, SettingsPage, theme, win98};
 use crate::app::ReDox;
 use redox::codex;
-use redox::domain::{DEFAULT_MODEL, Mode};
+use redox::domain::{DEFAULT_MODEL, Mode, Provider};
 
 const SETTINGS_PAGES: [(SettingsPage, &str); 11] = [
     (SettingsPage::Account, "Account"),
@@ -490,6 +490,75 @@ impl ReDox {
             }
             ui.add_space(12.0);
             ui.label(RichText::new("Your effort choice is remembered separately for each model. Only supported levels are offered.").color(muted()));
+        });
+        ui.add_space(18.0);
+        settings_group(ui, "DeepSeek", |ui| {
+            ui.label(
+                RichText::new("Direct DeepSeek chat over the OpenAI-compatible API. The key is stored in the local session file; you can also set DEEPSEEK_API_KEY instead.")
+                    .small()
+                    .color(muted()),
+            );
+            ui.label("API key");
+            ui.add(
+                egui::TextEdit::singleline(&mut self.session.deepseek.api_key)
+                    .password(true)
+                    .hint_text("sk-…")
+                    .desired_width(f32::INFINITY),
+            );
+            ui.label("Model");
+            ui.add(
+                egui::TextEdit::singleline(&mut self.session.deepseek.model)
+                    .hint_text("deepseek-chat or deepseek-reasoner")
+                    .desired_width(f32::INFINITY),
+            );
+            ui.collapsing("Endpoint", |ui| {
+                ui.label("Base URL");
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.session.deepseek.base_url)
+                        .hint_text(redox::deepseek::DEFAULT_BASE_URL)
+                        .desired_width(f32::INFINITY),
+                );
+            });
+            let ready = self.session.deepseek.api_key().is_some();
+            if !ready {
+                ui.label(
+                    RichText::new("Add a key (or set DEEPSEEK_API_KEY) before using DeepSeek.")
+                        .small()
+                        .color(Color32::from_rgb(200, 120, 60)),
+                );
+            }
+            let is_deepseek = self
+                .session
+                .active()
+                .is_some_and(|chat| chat.provider == Provider::DeepSeek);
+            let deepseek_model = self.session.deepseek.model().to_owned();
+            ui.horizontal_wrapped(|ui| {
+                if ui
+                    .add_enabled(
+                        ready && !is_deepseek && self.running.is_none(),
+                        egui::Button::new("Use DeepSeek for this chat"),
+                    )
+                    .clicked()
+                    && let Some(chat) = self.session.active_mut()
+                {
+                    chat.set_provider(Provider::DeepSeek, deepseek_model.clone());
+                }
+                if ui
+                    .add_enabled(
+                        is_deepseek && self.running.is_none(),
+                        egui::Button::new("Back to Codex"),
+                    )
+                    .clicked()
+                    && let Some(chat) = self.session.active_mut()
+                {
+                    chat.set_provider(Provider::Codex, String::new());
+                }
+            });
+            ui.label(
+                RichText::new("DeepSeek replies stream into the chat and report their token counts at the bottom of the sidebar. Tool access is not available on this provider yet.")
+                    .small()
+                    .color(muted()),
+            );
         });
         ui.add_space(18.0);
         ui.label("You can also change the model and effort directly in the composer.");

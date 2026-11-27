@@ -8,7 +8,7 @@ Redox: A reaction where both reduction and oxidation occurs. The process of Oxid
 Windows 98 is the interface under active development and the one to expect updates for. The older interfaces are being deprecated: Claude and Gemini are gone, and Codex is kept under **Settings > Interface > Legacy** along with the other menu-only options. SaffyOS is in development — it is unfinished and not functional yet, so treat those pages and commands as previews.
 
 ## Run
-Version **0.3.0**. The Studio runtime library is bundled under `src/ui/studio_runtime` so ordinary builds work from this repository alone.
+Version **0.4.0**. The Studio runtime library is bundled under `src/ui/studio_runtime` so ordinary builds work from this repository alone.
 
 Windows resource budgets are available in **Settings > Resource limiter**. Enable the limiter, choose CPU and RAM percentages, enter your connection's upload capacity in Mbps, choose an upload percentage, and click **Apply resource budgets**. Applied settings persist across restarts. The limiter starts disabled with proposed budgets of 50% and a user-editable 20 Mbps upload reference.
 
@@ -62,6 +62,12 @@ Chat rows have a small **×** button to archive locally. Open **Archived chats**
 
 **New chat** reuses an empty conversation for the same project and provider, and is disabled while that blank chat is selected. Creating or returning to a blank chat focuses the message box in every layout. Drafts and attachments are preserved when starting another chat.
 
+## DeepSeek
+
+ReDox can chat through DeepSeek's OpenAI-compatible API without the Codex CLI. Open **Settings > Models > DeepSeek**, paste an API key, and press **Use DeepSeek for this chat**. The key is stored in the local `redox.session.v1` state file; set `DEEPSEEK_API_KEY` instead to keep it out of that file. The default model is `deepseek-chat`; `deepseek-reasoner` also works. **Back to Codex** returns the chat to the CLI transport.
+
+Replies stream into the chat and report their token counts in the sidebar footer and in the Windows 98 taskbar tray. The endpoint field accepts any OpenAI-compatible base URL, so a proxy or a local gateway works too. This provider is text-only for now: no project tools, desktop control, or delegation.
+
 ## Account
 
 Open **Settings > Account > Log out** to sign out of the Codex account shared with the CLI. Saved chats and drafts are kept. Logout waits until responses, sign-in, and account refreshes finish; failures leave the displayed account intact. Use **Sign in with ChatGPT** to reconnect.
@@ -91,7 +97,7 @@ Locked SaffyOS uses a local Ollama model over a loopback IP such as `127.0.0.1`.
 
 Use `run_python` to test a workspace `.py` file with an offline Python 3.12 standard-library runtime. ReDox stages the script and up to 16 listed input files in a temporary filesystem. The script can read and write there during its run, and ReDox returns its exit code, stdout, and stderr. Files written by the program are discarded at the end of the run. The tool accepts arguments and text stdin, limits Python execution to 15 seconds, and supports **Stop**. See [SaffyOS Python runtime setup](docs/saffyos-python.md) for installation.
 
-Create the Ainsley Ox BBB 1.6 profile locally with `ollama create Aisnley-Ox-1.6-bbb:35b -f docs/ollama/Ainsley16.Modelfile`. It reuses the installed 1.5 35B weights. Select it in **Agents** or use `/saffyOS` for a regular workspace chat. The 1.6 profile starts the user's task immediately, uses the actual chat configuration for state questions, and uses the current conversation for recall. In a writable project chat with project tools enabled, ReDox enables reasoning when Ollama reports thinking support. The model can use `edit_file` for exact edits and `run_command` for verification. Ainsley 1.5 and older Rust profiles still qualify before chat, with up to three attempts. Run the live 1.6 workflow check with `cargo test --locked --lib ainsley_16_live -- --ignored --nocapture`.
+Create the Ainsley Ox BBB 1.6 profile locally with `ollama create Aisnley-Ox-1.6-bbb:35b -f docs/ollama/Ainsley16.Modelfile`. It reuses the installed 1.5 35B weights and sets a 32K context window, 0.6 temperature, and a SaffyOS-scoped system prompt covering the locked file tools and un_python; rebuild the profile after editing the Modelfile. Select it in **Agents** or use `/saffyOS` for a regular workspace chat. The 1.6 profile starts the user's task immediately, uses the actual chat configuration for state questions, and uses the current conversation for recall. In a writable project chat with project tools enabled, ReDox enables reasoning when Ollama reports thinking support. The model can use `edit_file` for exact edits and `run_command` for verification. Ainsley 1.5 and older Rust profiles still qualify before chat, with up to three attempts. Run the live 1.6 workflow check with `cargo test --locked --lib ainsley_16_live -- --ignored --nocapture`.
 
 For a matched workflow benchmark, set `REDOX_BENCH_MODEL` to either installed model tag and run the same live workflow check. This mode bypasses qualification for both models and prints wall time, request counts, and pass/fail for each turn, plus an independent check of the generated CLI. Set `REDOX_BENCH_GATE` as well to measure just the first prompt through the normal startup route, with a 180-second time limit.
 

@@ -14,6 +14,7 @@ pub enum Provider {
     #[default]
     Codex,
     Ollama,
+    DeepSeek,
 }
 
 #[derive(Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -469,6 +470,7 @@ pub struct Session {
     pub archived_projects: Vec<PathBuf>,
     pub local_archive_overrides: BTreeMap<String, bool>,
     pub ollama: crate::ollama::Settings,
+    pub deepseek: crate::deepseek::Settings,
     pub chats: Vec<Chat>,
     pub active_chat: Option<Uuid>,
     pub workspace: Option<PathBuf>,
@@ -488,6 +490,7 @@ impl Default for Session {
             archived_projects: Vec::new(),
             local_archive_overrides: BTreeMap::new(),
             ollama: crate::ollama::Settings::default(),
+            deepseek: crate::deepseek::Settings::default(),
             chats: Vec::new(),
             active_chat: None,
             workspace: None,

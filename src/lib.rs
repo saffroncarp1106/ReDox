@@ -2,6 +2,7 @@ pub mod activity;
 pub mod attachments;
 pub mod clipboard;
 pub mod codex;
+pub mod deepseek;
 pub mod delegation;
 pub mod desktop;
 pub mod domain;

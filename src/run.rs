@@ -49,6 +49,7 @@ pub enum Request {
         executable: String,
     },
     Ollama(crate::ollama::Request),
+    DeepSeek(crate::deepseek::Request),
 }
 
 impl Request {
@@ -56,6 +57,7 @@ impl Request {
         match self {
             Self::Codex { request, .. } => (&request.desktop, &request.desktop_activity),
             Self::Ollama(request) => (&request.desktop, &request.desktop_activity),
+            Self::DeepSeek(request) => (&request.desktop, &request.desktop_activity),
         }
     }
 }
@@ -94,6 +96,9 @@ impl Running {
                     Request::Ollama(request) => {
                         crate::ollama::stream_qualified_chat(request, provider_sender, cancellation)
                             .await
+                    }
+                    Request::DeepSeek(request) => {
+                        crate::deepseek::stream_chat(request, provider_sender, cancellation).await
                     }
                 }
             });
